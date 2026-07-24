@@ -125,24 +125,19 @@ export const AuditForm: React.FC<AuditFormProps> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* Тип проверки */}
-          <div className="bg-yellow-500/10 p-2.5 rounded-xl border-2 border-yellow-500/70 shadow-sm shadow-yellow-500/10">
-            <label className="text-xs text-yellow-300 font-bold mb-1 flex items-center justify-between">
-              <span>Тип проверки (Шаблон) *</span>
-              <span className="text-[10px] bg-yellow-400 text-slate-950 font-black px-1.5 py-0.5 rounded shadow-sm">
-                Выбор шаблона
-              </span>
-            </label>
+          <div>
+            <label className="text-xs text-slate-400 font-medium mb-1 block">Тип проверки</label>
             <select
               name="checkType"
               value={auditData.checkType}
               onChange={handleInputChange}
-              className="w-full bg-slate-950 border-2 border-yellow-400 text-yellow-200 font-bold focus:border-yellow-300 focus:ring-2 focus:ring-yellow-400/30 rounded-lg px-3 py-1.5 text-xs focus:outline-none shadow-sm"
+              className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
             >
               <option value="1. Контрольная закупка">
-                1. Контрольная закупка (Шаблон с покупкой)
+                1. Контрольная закупка
               </option>
               <option value="2. Mystery shopper (без покупки)">
-                2. Mystery shopper (Шаблон без покупки)
+                2. Mystery shopper (без покупки)
               </option>
             </select>
           </div>

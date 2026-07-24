@@ -41,7 +41,14 @@ export default function App() {
   const [auditRecords, setAuditRecords] = useState<AuditRecord[]>(() => {
     try {
       const saved = localStorage.getItem("okk_audit_records_v2");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) return parsed;
+        } catch (parseErr) {
+          console.warn("Invalid JSON in localStorage okk_audit_records_v2, resetting to default:", parseErr);
+        }
+      }
     } catch (e) {
       console.error("Failed to load audit records from storage", e);
     }
@@ -88,7 +95,16 @@ export default function App() {
   // Health check
   useEffect(() => {
     fetch("/api/health")
-      .then((res) => res.json())
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch (parseError) {
+          console.warn("Non-JSON response from /api/health:", text);
+          return null;
+        }
+      })
       .then((data) => {
         if (data && typeof data.hasApiKey === "boolean") {
           setHasApiKey(data.hasApiKey);
@@ -121,10 +137,19 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        console.error("Server returned non-JSON response:", responseText);
+        throw new Error(
+          `Ошибка ответа сервера (${response.status}): Не удалось распарсить данные. Ожидался JSON, но получен иной формат.`
+        );
+      }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Ошибка при выполнении анализа проверки.");
+        throw new Error(data?.error || "Ошибка при выполнении анализа проверки.");
       }
 
       setAuditReport(data.report);
@@ -205,10 +230,19 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        console.error("Server returned non-JSON response:", responseText);
+        throw new Error(
+          `Ошибка ответа сервера (${response.status}): Не удалось обработать ответ от обработчика фото.`
+        );
+      }
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Не удалось обработать фото.");
+        throw new Error(data?.error || "Не удалось обработать фото.");
       }
 
       setEditedImage(data.imageUrl);
