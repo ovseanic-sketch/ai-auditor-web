@@ -12,6 +12,7 @@ import { HistoryTimeline, HistoryItem } from "./components/HistoryTimeline";
 import { SAMPLE_PRODUCTS, SampleProduct } from "./data/sampleProducts";
 import { AUDIT_PRESETS } from "./data/auditPresets";
 import { AuditFormData } from "./types";
+import { analyzeMysteryShopperClient, editProductPhotoClient } from "./services/geminiService";
 import {
   DEFAULT_ADJUSTMENTS,
   Adjustments,
@@ -124,33 +125,12 @@ export default function App() {
     setErrorMessage(null);
 
     try {
-      const response = await fetch("/api/analyze-mystery-shopper", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          auditData,
-          transcript,
-          audioBase64,
-          audioMimeType: "audio/mp3",
-        }),
+      const data = await analyzeMysteryShopperClient({
+        auditData,
+        transcript,
+        audioBase64: audioBase64 || undefined,
+        audioMimeType: "audio/mp3",
       });
-
-      const responseText = await response.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseErr) {
-        console.error("Server returned non-JSON response:", responseText);
-        throw new Error(
-          `Ошибка ответа сервера (${response.status}): Не удалось распарсить данные. Ожидался JSON, но получен иной формат.`
-        );
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(data?.error || "Ошибка при выполнении анализа проверки.");
-      }
 
       setAuditReport(data.report);
 
@@ -217,33 +197,12 @@ export default function App() {
     setErrorMessage(null);
 
     try {
-      const response = await fetch("/api/edit-product-photo", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          image: originalImage,
-          prompt: prompt.trim(),
-          modelQuality,
-          aspectRatio,
-        }),
+      const data = await editProductPhotoClient({
+        image: originalImage,
+        prompt: prompt.trim(),
+        modelQuality,
+        aspectRatio,
       });
-
-      const responseText = await response.text();
-      let data: any;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseErr) {
-        console.error("Server returned non-JSON response:", responseText);
-        throw new Error(
-          `Ошибка ответа сервера (${response.status}): Не удалось обработать ответ от обработчика фото.`
-        );
-      }
-
-      if (!response.ok || !data.success) {
-        throw new Error(data?.error || "Не удалось обработать фото.");
-      }
 
       setEditedImage(data.imageUrl);
 
@@ -258,8 +217,8 @@ export default function App() {
 
       setHistory((prev) => [newHistoryItem, ...prev]);
     } catch (err: any) {
-      console.error("Studio edit error:", err);
-      setErrorMessage(err.message || "Произошла ошибка при обработке изображений.");
+      console.error("Image generation error:", err);
+      setErrorMessage(err.message || "Ошибка при обработке фото.");
     } finally {
       setIsProcessing(false);
     }

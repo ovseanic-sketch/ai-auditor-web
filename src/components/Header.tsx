@@ -1,5 +1,6 @@
-import React from "react";
-import { Sparkles, Wand2, ShieldCheck, Image as ImageIcon, FileSearch, CheckCircle2, BarChart3, Layers } from "lucide-react";
+import React, { useState } from "react";
+import { Sparkles, Wand2, ShieldCheck, Image as ImageIcon, FileSearch, CheckCircle2, BarChart3, Layers, Key } from "lucide-react";
+import { getStoredApiKey, setStoredApiKey } from "../services/geminiService";
 
 interface HeaderProps {
   hasApiKey: boolean;
@@ -20,6 +21,14 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
 }) => {
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [apiKeyVal, setApiKeyVal] = useState(getStoredApiKey());
+
+  const handleSaveKey = () => {
+    setStoredApiKey(apiKeyVal);
+    setShowKeyInput(false);
+  };
+
   return (
     <header id="studio-header" className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-white px-4 lg:px-8 py-3 transition-all">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -117,10 +126,45 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
+          {/* API Key Setting Toggle */}
+          <div className="relative">
+            <button
+              onClick={() => setShowKeyInput(!showKeyInput)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 text-xs text-slate-300 font-medium transition-all"
+            >
+              <Key className="w-3.5 h-3.5 text-amber-400" />
+              <span>{apiKeyVal ? "Ключ Gemini: Установлен" : "Ввести API Ключ"}</span>
+            </button>
+
+            {showKeyInput && (
+              <div className="absolute right-0 mt-2 w-80 p-3 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 text-xs">
+                <label className="block text-slate-300 font-semibold mb-1">
+                  API Ключ Gemini (для работы в браузере):
+                </label>
+                <input
+                  type="password"
+                  placeholder="AIzaSy..."
+                  value={apiKeyVal}
+                  onChange={(e) => setApiKeyVal(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-100 font-mono mb-2 focus:outline-none focus:border-blue-500"
+                />
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-slate-400">Сохраняется локально в браузере</span>
+                  <button
+                    onClick={handleSaveKey}
+                    className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-1 rounded-lg text-xs"
+                  >
+                    Сохранить
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* API Status Badge */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Gemini AI Готов</span>
+            <span>Frontend Client Ready</span>
           </div>
         </div>
       </div>
