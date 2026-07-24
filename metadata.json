@@ -1,0 +1,6 @@
+{
+  "name": "ИИ Агент Аудитор Контрольных Закупок",
+  "description": "Автоматизированный анализ и аудитор контрольных закупок (Mystery Shopper) по стандартам, цитированием с таймкодами, оценкой голоса и сводной таблицей.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
