@@ -3,15 +3,20 @@
  * matching the official "АКТ ОЦЕНКИ КАЧЕСТВА ОБСЛУЖИВАНИЯ (ОКК)" standard.
  */
 
-import { cleanMarkdownReport } from "./cleanMarkdown";
+import { cleanMarkdownReport, updateReportMetadata } from "./cleanMarkdown";
 
 export interface ExportPdfOptions {
   title?: string;
   brand?: string;
   branch?: string;
+  city?: string;
   date?: string;
+  time?: string;
   checkType?: string;
   employeeCode?: string;
+  inspector?: string;
+  category?: string;
+  target?: string;
   reportContent: string;
 }
 
@@ -20,9 +25,14 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
     title = "АКТ ОЦЕНКИ КАЧЕСТВА ОБСЛУЖИВАНИЯ (ОКК)",
     brand = "Компания",
     branch = "Филиал №3",
+    city = "Кишинев",
     date = new Date().toLocaleDateString("ru-RU"),
+    time = "14:30",
     checkType = "Полная проверка с контрольной закупкой",
     employeeCode = "Консультант",
+    inspector = "Инспектор ОКК",
+    category,
+    target,
     reportContent,
   } = options;
 
@@ -35,9 +45,23 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
 
   const isMysteryShopper = checkType.toLowerCase().includes("mystery");
   const badgeText = isMysteryShopper ? "MYSTERY SHOPPER" : "КОНТРОЛЬНАЯ ЗАКУПКА";
-  const badgeClass = isMysteryShopper ? "badge-blue" : "badge-green";
+  const badgeClass = isMysteryShopper ? "badge-green" : "badge-blue";
 
-  const cleanedContent = cleanMarkdownReport(reportContent);
+  // Ensure Section 1 (Passport) contains all Step 3 corrected fields
+  const updatedReportText = updateReportMetadata(reportContent, {
+    brand,
+    branch,
+    city,
+    date,
+    time,
+    checkType,
+    employeeCode,
+    inspector,
+    category,
+    target,
+  });
+
+  const cleanedContent = cleanMarkdownReport(updatedReportText);
 
   // Convert markdown to custom HTML with the exact corporate OKK layout
   const formattedBody = formatMarkdownToOkkHtml(cleanedContent, {
@@ -46,6 +70,7 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
     date,
     checkType,
     employeeCode,
+    inspector,
   });
 
   const printDocumentHtml = `
@@ -481,9 +506,9 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
       <div class="signatures-title">Согласование и ознакомление</div>
       <div class="signatures-grid">
         <div class="signature-item">
-          <div>Специалист ОКК:</div>
+          <div>Специалист ОКК / Аудитор:</div>
           <div class="signature-line"></div>
-          <div>(Подпись / ФИО)</div>
+          <div>${inspector}</div>
         </div>
         <div class="signature-item">
           <div>Руководитель филиала (РОП):</div>
@@ -525,6 +550,7 @@ interface FormatMeta {
   date: string;
   checkType: string;
   employeeCode: string;
+  inspector?: string;
 }
 
 function formatMarkdownToOkkHtml(markdown: string, meta: FormatMeta): string {

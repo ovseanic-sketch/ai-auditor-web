@@ -21,6 +21,7 @@ import {
 import { AuditFormData } from "../types";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
 import { cleanMarkdownReport } from "../utils/cleanMarkdown";
+import { CardSkeleton } from "./SkeletonLoader";
 
 interface AuditReportViewProps {
   report: string | null;
@@ -39,17 +40,21 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
 
   if (isAnalyzing) {
     return (
-      <div id="audit-report-loading" className="bg-slate-900/90 rounded-2xl border border-slate-800 p-12 text-center shadow-2xl space-y-4">
-        <div className="relative w-16 h-16 mx-auto">
-          <div className="w-16 h-16 rounded-full border-4 border-blue-500/20 border-t-blue-500 animate-spin" />
-          <Sparkles className="w-6 h-6 text-blue-400 absolute inset-0 m-auto animate-pulse" />
+      <div id="audit-report-loading" className="space-y-6">
+        <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-8 text-center shadow-2xl space-y-4">
+          <div className="relative w-14 h-14 mx-auto">
+            <div className="w-14 h-14 rounded-full border-4 border-blue-500/20 border-t-blue-500 animate-spin" />
+            <Sparkles className="w-5 h-5 text-blue-400 absolute inset-0 m-auto animate-pulse" />
+          </div>
+          <h3 className="text-base font-bold text-slate-100">
+            ИИ-Агент Аудитор анализирует визит...
+          </h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Проверяем качество записи, разделяем реплики, оцениваем только применимые критерии BPV, накладываем цитаты с таймкодами, анализируем голос консультанта и формируем сводную строку таблицы.
+          </p>
         </div>
-        <h3 className="text-lg font-bold text-slate-100">
-          ИИ-Агент Аудитор анализирует визит...
-        </h3>
-        <p className="text-xs text-slate-400 max-w-md mx-auto">
-          Проверяем качество записи, разделяем реплики, оцениваем только применимые критерии BPV, накладываем цитаты с таймкодами, анализируем голос консультанта и формируем сводную строку таблицы.
-        </p>
+
+        <CardSkeleton />
       </div>
     );
   }
@@ -154,9 +159,14 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
       title: "АКТ ОЦЕНКИ КАЧЕСТВА ОБСЛУЖИВАНИЯ (ОКК)",
       brand: auditData?.brand || "Компания",
       branch: auditData?.branch || "Филиал №3",
+      city: auditData?.city || "Кишинев",
       date: auditData?.date || new Date().toLocaleDateString("ru-RU"),
+      time: auditData?.time || "14:30",
       checkType: auditData?.checkType || "1. Контрольная закупка",
       employeeCode: auditData?.employeeCode || "Консультант",
+      inspector: auditData?.inspector || "Инспектор ОКК",
+      category: auditData?.category || "",
+      target: auditData?.target || "",
       reportContent: cleanedReport,
     });
   };

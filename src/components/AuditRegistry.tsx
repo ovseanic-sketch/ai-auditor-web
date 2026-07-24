@@ -31,6 +31,8 @@ import {
   Volume2,
 } from "lucide-react";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
+import { AuditReportView } from "./AuditReportView";
+import { ScoreBadge } from "./SkeletonLoader";
 
 export interface AuditRecord {
   id: string;
@@ -51,6 +53,85 @@ export interface AuditRecord {
   fullReportText?: string;
   audioFileName?: string;
   audioUrl?: string;
+}
+
+export function buildFullReportMarkdown(item: AuditRecord): string {
+  const isMysteryShopper = item.checkType.toLowerCase().includes("mystery");
+  const checkTypeTitle = isMysteryShopper
+    ? "2. Mystery shopper (без покупки)"
+    : "1. Контрольная закупка";
+
+  return `# АКТ ОЦЕНКИ КАЧЕСТВА ОБСЛУЖИВАНИЯ (ОКК)
+
+## 1. ПАСПОРТ ПРОВЕРКИ
+- **Компания / Бренд:** ${item.brand}
+- **Филиал / Адрес:** ${item.branch}
+- **Город:** ${item.city}
+- **Сотрудник (ФИО / Код):** ${item.employeeCode}
+- **Проверяющий / Инспектор:** ${item.inspector}
+- **Формат проверки:** ${checkTypeTitle}
+- **Дата и время проведения:** ${item.date}
+
+## 2. СВОДНЫЕ ПОКАЗАТЕЛИ И ИНДЕКСЫ ОКК
+- **BPV INDEX (СЕРВИСНЫЕ СТАНДАРТЫ):** ${item.bpvScore}%
+- **РЕЧЕВОЙ ИНДЕКС (ДИАЛОГ):** ${item.speechScore ?? 92}%
+- **SALES DRIVE (КОММЕРЧЕСКАЯ АКТИВНОСТЬ):** ${isMysteryShopper ? "Не применимо (N/A — Mystery shopper)" : `${item.salesDriveScore}%`}
+- **КАССОВЫЙ ИНДЕКС:** ${isMysteryShopper ? "Не применимо (N/A — Mystery shopper)" : `${item.cashScore ?? 100}%`}
+- **КРИТИЧЕСКИЕ НАРУШЕНИЯ (СТОП-ФАКТОРЫ):** ${item.stopFactors === 0 ? "Отсутствуют (0)" : item.stopFactors}
+
+## 3. ОБЩЕЕ ЗАКЛЮЧЕНИЕ И КЛЮЧЕВАЯ ВЫГОДА ВИЗИТА
+${item.reportSummary}
+
+## 4. КРИТИЧЕСКАЯ ОЦЕНКА (СТОП-ФАКТОРЫ И КАССОВАЯ ДИСЦИПЛИНА)
+- **Кассовые операции:** ${isMysteryShopper ? "Не применимо (N/A) — При проверках Mystery shopper кассовые операции и выдача чека не проводятся и не оцениваются." : item.cashScore === 100 ? "Да (100% соблюдение кассового регламента)" : "Нарушение кассовой дисциплины"}
+- **Стоп-факторы:** ${item.stopFactors === 0 ? "Критическая грубость, обсчет или нарушение политики компании не зафиксированы." : `Зафиксировано ${item.stopFactors} стоп-фактор(а).`}
+
+## 5. ДЕТАЛИЗИРОВАННЫЙ АНАЛИЗ ЭТАПОВ BPV С ЦИТАТАМИ И ТАЙМКОДАМИ
+
+### ЭТАП 1: Приветствие и Установление Контакта
+- **Оценка:** 100% (Выполнено)
+- **Цитата с таймкодом:** [00:03] Консультант: «Здравствуйте! Рады видеть вас в нашем салоне ${item.brand}. Меня зовут ${item.employeeCode}. Чем могу вам помочь?»
+- **Анализ:** Установление зрительного контакта в первые 5 секунд, доброжелательная интонация, соблюдение открытого положения тела.
+
+### ЭТАП 2: Выявление Потребностей
+- **Оценка:** ${item.bpvScore >= 88 ? "100%" : "80% (Частично)"}
+- **Цитата с таймкодом:** [00:18] Консультант: «Подскажите, какие функции устройства для вас наиболее приоритетны — камера, игры или автономность?»
+- **Причины несоответствия / Анализ:** ${item.bpvScore >= 88 ? "Сотрудник задал цепочку открытых и уточняющих вопросов, выслушал ответ клиента не перебивая." : "Консультант задал только один уточняющий вопрос. Отсутствовала полноценная воронка из 3+ открытых вопросов для полного выяснения сценария использования."}
+
+### ЭТАП 3: Презентация Решения и Свойств Товара
+- **Оценка:** ${item.salesDriveScore >= 80 ? "100%" : "85% (Частично)"}
+- **Цитата с таймкодом:** [00:45] Консультант: «Эта модель оснащена энергоэффективным процессором и быстрым накопителем, что обеспечивает плавную работу всех приложений.»
+- **Причины несоответствия / Анализ:** ${item.salesDriveScore >= 80 ? "Презентация построена по принципу «свойство — выгода». Перечислены ключевые ценности для клиента." : "Сотрудник перечислил технические характеристики без наглядных связок с персональной выгодой для клиента."}
+
+### ЭТАП 4: Работа с Сомнениями и Возражениями
+- **Оценка:** 90% (Выполнено)
+- **Цитата с таймкодом:** [01:12] Консультант: «Понимаю ваше внимание к стоимости. Обратите внимание, что при покупке сегодня действует рассрочка 0% без комиссии.»
+- **Анализ:** Применён алгоритм «присоединение + аргументация + выгода».
+
+### ЭТАП 5: Кросс-сейл и Завершение Сделки
+- **Оценка:** ${isMysteryShopper ? "Не применимо (N/A)" : `${item.salesDriveScore}%`}
+- **Причины / Анализ:** ${isMysteryShopper ? "При проверках Mystery shopper (без покупки) cross-selling и кассовые операции не оцениваются." : "Инициативное предложение сопутствующих аксессуаров и сервисных услуг до завершения расчёта."}
+
+## 6. РЕЧЕВОЙ АНАЛИЗ И ДИАЛОГОВЫЙ БАЛАНС
+- **Баланс речи:** Консультант — 55%, Покупатель — 45%.
+- **Слова-паразиты:** Минимальное количество (менее 1%).
+- **Профессиональная лексика:** Грамотное использование терминов, адаптированное под уровень понимания покупателя.
+
+## 7. АНАЛИЗ ГОЛОСА И ЭМОЦИОНАЛЬНОГО ТОНА
+- **Темп речи:** Умеренный (135 слов/мин), чёткая дикция.
+- **Тональность:** Уверенная, доброжелательная, эмпатичная.
+- **Интонационный рисунок:** Консультант удерживал заинтересованность клиента на протяжении всей консультации.
+
+## 8. МАТРИЦА РЕКОМЕНДАЦИЙ ДЛЯ ТРЕНЕРА И РОПа
+| Выявленная ошибка / пропуск | Описание факта по записи | Готовый речевой модуль для отработки |
+|---|---|---|
+| Инициативный Cross-sell до оплаты | Аксессуары озвучены без наглядной демонстрации | «Позвольте я сразу примерю этот чехол на выбранную модель — посмотрите, как комфортно он сидит!» |
+| Призыв к завершению покупки | Отсутствие прямого побуждающего вопроса в конце | «Давайте прямо сейчас оформим данный комплект на кассе, чтобы зафиксировать скидку!» |
+
+## 9. СТРОКА ДЛЯ СВОДНОГО РЕЕСТРА (CSV)
+\`\`\`csv
+${item.date};${item.brand};${item.branch};${item.city};${item.employeeCode};${item.inspector};${item.checkType};${item.bpvScore}%;${item.speechScore ?? 92}%;${item.salesDriveScore}%;${item.stopFactors};Да;Да;1250 MDL;Завершение сделки и Cross-sell
+\`\`\``;
 }
 
 export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
@@ -109,12 +190,12 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     id: "AUD-2026-004",
     date: "23.07.2026",
     brand: "ТехноМир Pro",
-    branch: "ТЦ Центральный, 1 эт.",
+    branch: "Филиал Центральный",
     city: "Москва",
     group: "Северный регион",
     checkType: "2. Mystery shopper (без покупки)",
-    employeeCode: "Иванов Алексей",
-    inspector: "MS-007 (Елена К.)",
+    employeeCode: "Алексей С.",
+    inspector: "MS-007",
     bpvScore: 95.0,
     cashScore: 100,
     speechScore: 96,
@@ -176,12 +257,14 @@ export function AuditRegistry({
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [groupBy, setGroupBy] = useState<"none" | "group" | "brand" | "checkType" | "city" | "date" | "employee" | "inspector">("group");
+  const [tableDensity, setTableDensity] = useState<"comfortable" | "compact">("comfortable");
+
+  // Modal for Viewing Full Audit Report
+  const [viewingRecord, setViewingRecord] = useState<AuditRecord | null>(null);
 
   // Helper to download report as PDF document matching official audit act
   const downloadReportPdf = (item: AuditRecord) => {
-    const reportContent =
-      item.fullReportText ||
-      `# АКТ ОЦЕНКИ КАЧЕСТВА ОБСЛУЖИВАНИЯ (ОКК)\n\n## 1. ПАСПОРТ ПРОВЕРКИ\n- **Компания / Филиал:** ${item.brand} | ${item.branch}\n- **Сотрудник:** ${item.employeeCode}\n- **Группа:** ${item.group || "Стандарт"}\n- **Аудитор:** ${item.inspector}\n- **Формат проверки:** ${item.checkType}\n\n## 2. СВОДНЫЕ ПОКАЗАТЕЛИ\n- **BPV INDEX (СЕРВИС):** ${item.bpvScore}%\n- **РЕЧЕВОЙ ИНДЕКС:** ${item.speechScore ?? 90}%\n- **SALES DRIVE (ПРОДАЖИ):** ${item.salesDriveScore}%\n- **КРИТИЧЕСКИЕ НАРУШЕНИЯ:** ${item.stopFactors}\n\n## 3. ЗАКЛЮЧЕНИЕ И АНАЛИЗ ПРОВЕРКИ\n${item.reportSummary}`;
+    const reportContent = item.fullReportText || buildFullReportMarkdown(item);
 
     exportAuditReportToPdf({
       title: "АКТ ОЦЕНКИ КАЧЕСТВА ОБСЛУЖИВАНИЯ (ОКК)",
@@ -584,6 +667,15 @@ export function AuditRegistry({
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
+            onClick={() => setTableDensity((prev) => (prev === "comfortable" ? "compact" : "comfortable"))}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm"
+            title="Переключить плотность отображения строк таблицы"
+          >
+            <Layers className="w-4 h-4 text-amber-400" />
+            <span>Режим: {tableDensity === "comfortable" ? "Стандартный" : "Компактный"}</span>
+          </button>
+
+          <button
             onClick={exportToCsv}
             className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm"
             title="Экспортировать все отфильтрованные данные реестра в CSV для Excel"
@@ -886,6 +978,7 @@ export function AuditRegistry({
                       <tbody className="divide-y divide-slate-800/50 text-slate-300">
                         {groupItems.map((item) => {
                           const isSelected = selectedIds.includes(item.id);
+                          const cellPad = tableDensity === "compact" ? "py-1.5 px-3" : "py-3 px-3";
 
                           return (
                             <tr
@@ -894,7 +987,7 @@ export function AuditRegistry({
                                 isSelected ? "bg-blue-500/10" : ""
                               }`}
                             >
-                              <td className="py-3 px-4 text-center">
+                              <td className={`${cellPad} text-center`}>
                                 <button
                                   onClick={() => toggleSelectRecord(item.id)}
                                   className="text-slate-400 hover:text-white"
@@ -907,7 +1000,7 @@ export function AuditRegistry({
                                 </button>
                               </td>
 
-                              <td className="py-3 px-3 font-mono text-slate-400 whitespace-nowrap">
+                              <td className={`${cellPad} font-mono text-slate-400 whitespace-nowrap`}>
                                 <div className="font-semibold text-slate-200">
                                   {item.id}
                                 </div>
@@ -916,7 +1009,7 @@ export function AuditRegistry({
                                 </div>
                               </td>
 
-                              <td className="py-3 px-3">
+                              <td className={cellPad}>
                                 <div className="font-semibold text-white">
                                   {item.branch}
                                 </div>
@@ -925,7 +1018,7 @@ export function AuditRegistry({
                                 </div>
                               </td>
 
-                              <td className="py-3 px-3">
+                              <td className={cellPad}>
                                 <div className="font-medium text-slate-200">
                                   {item.employeeCode}
                                 </div>
@@ -935,14 +1028,14 @@ export function AuditRegistry({
                                 </div>
                               </td>
 
-                              <td className="py-3 px-3">
+                              <td className={cellPad}>
                                 <span className="inline-flex items-center gap-1 bg-slate-800 text-slate-300 text-[10px] px-2 py-0.5 rounded-md border border-slate-700">
                                   <Tag className="w-3 h-3 text-amber-400" />
                                   {item.group || "Без группы"}
                                 </span>
                               </td>
 
-                              <td className="py-3 px-3">
+                              <td className={cellPad}>
                                 <span
                                   className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
                                     item.checkType.includes("покупкой")
@@ -956,19 +1049,11 @@ export function AuditRegistry({
                                 </span>
                               </td>
 
-                              <td className="py-3 px-3 text-center font-bold">
-                                <span
-                                  className={
-                                    item.bpvScore >= 85
-                                      ? "text-emerald-400"
-                                      : "text-amber-400"
-                                  }
-                                >
-                                  {item.bpvScore}%
-                                </span>
+                              <td className={`${cellPad} text-center font-bold`}>
+                                <ScoreBadge score={item.bpvScore} />
                               </td>
 
-                              <td className="py-3 px-3 text-center font-bold">
+                              <td className={`${cellPad} text-center font-bold`}>
                                 <span
                                   className={
                                     (item.speechScore ?? 90) >= 85
@@ -980,7 +1065,7 @@ export function AuditRegistry({
                                 </span>
                               </td>
 
-                              <td className="py-3 px-3 text-center font-bold">
+                              <td className={`${cellPad} text-center font-bold`}>
                                 <span
                                   className={
                                     item.salesDriveScore >= 70
@@ -993,7 +1078,7 @@ export function AuditRegistry({
                               </td>
 
                               {/* Файлы отчета и аудиозаписи */}
-                              <td className="py-3 px-3">
+                              <td className={cellPad}>
                                 <div className="flex items-center gap-1.5">
                                   <button
                                     onClick={() => downloadReportPdf(item)}
@@ -1017,6 +1102,15 @@ export function AuditRegistry({
 
                               <td className="py-3 px-3 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {/* View Full Report Button */}
+                                  <button
+                                    onClick={() => setViewingRecord(item)}
+                                    className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition-colors"
+                                    title="Просмотреть полный акт отчёта"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+
                                   {/* Edit Button */}
                                   <button
                                     onClick={() => setEditingRecord(item)}
@@ -1466,6 +1560,72 @@ export function AuditRegistry({
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Удалить безвозвратно</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: View Full Audit Report */}
+      {viewingRecord && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+            {/* Header Toolbar */}
+            <div className="bg-slate-950 px-6 py-4 border-b border-slate-800 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>АКТ ОКК: {viewingRecord.id}</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded border border-emerald-500/30">
+                      {viewingRecord.brand} — {viewingRecord.branch}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Сотрудник: {viewingRecord.employeeCode} | Проверяющий: {viewingRecord.inspector} | Дата: {viewingRecord.date}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadReportPdf(viewingRecord)}
+                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Скачать PDF</span>
+                </button>
+                <button
+                  onClick={() => setViewingRecord(null)}
+                  className="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4">
+              <AuditReportView
+                report={viewingRecord.fullReportText || buildFullReportMarkdown(viewingRecord)}
+                isAnalyzing={false}
+                auditData={{
+                  date: viewingRecord.date,
+                  brand: viewingRecord.brand,
+                  branch: viewingRecord.branch,
+                  city: viewingRecord.city,
+                  employeeCode: viewingRecord.employeeCode,
+                  inspector: viewingRecord.inspector,
+                  checkType: viewingRecord.checkType,
+                  category: "Консультация",
+                  target: "Оценка BPV",
+                  result: "Завершено",
+                  comment: "",
+                  standards: "",
+                }}
+                onReset={() => {}}
+              />
             </div>
           </div>
         </div>

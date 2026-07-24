@@ -33,3 +33,50 @@ export function cleanMarkdownReport(markdown: string | null | undefined): string
 
   return cleaned.trim();
 }
+
+export interface ReportMetadataInput {
+  brand?: string;
+  branch?: string;
+  city?: string;
+  date?: string;
+  time?: string;
+  checkType?: string;
+  employeeCode?: string;
+  inspector?: string;
+  category?: string;
+  target?: string;
+}
+
+/**
+ * Replaces or injects Section 1 (Passport Table) in the markdown report with all operator-corrected fields from Step 3.
+ */
+export function updateReportMetadata(markdown: string | null | undefined, meta: ReportMetadataInput): string {
+  if (!markdown) return "";
+
+  let cleaned = cleanMarkdownReport(markdown);
+
+  const dateStr = meta.date || "—";
+  const timeStr = meta.time ? ` (${meta.time})` : "";
+
+  const passportBlock = `## 1. ПАСПОРТ ПРОВЕРКИ И МЕТАДАННЫЕ ВИЗИТА
+
+| Параметр | Значение |
+|---|---|
+| **Дата и время проверки** | ${dateStr}${timeStr} |
+| **Формат проверки** | ${meta.checkType || "1. Контрольная закупка"} |
+| **Бренд компании** | ${meta.brand || "—"} |
+| **Филиал / Подразделение** | ${meta.branch || "—"} |
+| **Город / Локация** | ${meta.city || "—"} |
+| **Сотрудник (ФИО / Код)** | ${meta.employeeCode || "—"} |
+| **Проверяющий / Аудитор** | ${meta.inspector || "—"} |${meta.category ? `\n| **Категория / Товар** | ${meta.category} |` : ""}${meta.target ? `\n| **Цель визита** | ${meta.target} |` : ""}`;
+
+  // Match section 1 in markdown
+  const section1Regex = /(?:#|##)\s*1\.\s*ПАСПОРТ[\s\S]*?(?=(?:#|##)\s*2\.|\n\n(?:#|##)\s*2\.|$)/i;
+
+  if (section1Regex.test(cleaned)) {
+    return cleaned.replace(section1Regex, passportBlock + "\n\n");
+  } else {
+    return passportBlock + "\n\n" + cleaned;
+  }
+}
+
