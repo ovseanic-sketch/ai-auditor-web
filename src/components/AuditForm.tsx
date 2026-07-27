@@ -1,6 +1,7 @@
-import React, { useState } from "react";
-import { AuditFormData, PresetAuditSample } from "../types";
+import React, { useState, useEffect } from "react";
+import { AuditFormData, PresetAuditSample, UserAccount } from "../types";
 import { AUDIT_PRESETS } from "../data/auditPresets";
+import { loadDictionaries, saveDictionaries, Dictionaries } from "../utils/dictionaryStore";
 import { CardSkeleton } from "./SkeletonLoader";
 import {
   FileText,
@@ -23,6 +24,8 @@ import {
   AlertCircle,
   Calendar,
   Clock,
+  Plus,
+  Globe,
 } from "lucide-react";
 
 interface AuditFormProps {
@@ -40,7 +43,31 @@ interface AuditFormProps {
   onGenerateStep3To4: () => void;
   onResetWorkflow: () => void;
   isAnalyzing: boolean;
+  currentUser?: UserAccount;
+  users?: UserAccount[];
 }
+
+const TIME_SLOTS = Array.from({ length: 96 }, (_, i) => {
+  const h = Math.floor(i / 4).toString().padStart(2, "0");
+  const m = ((i % 4) * 15).toString().padStart(2, "0");
+  return `${h}:${m}`;
+});
+
+const generateRecentDates = () => {
+  const dates = [];
+  const today = new Date();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const iso = d.toISOString().split("T")[0];
+    let label = iso;
+    if (i === 0) label = `Сегодня (${iso})`;
+    else if (i === 1) label = `Вчера (${iso})`;
+    else if (i === 2) label = `Позавчера (${iso})`;
+    dates.push({ value: iso, label });
+  }
+  return dates;
+};
 
 export const AuditForm: React.FC<AuditFormProps> = ({
   auditData,
@@ -57,12 +84,60 @@ export const AuditForm: React.FC<AuditFormProps> = ({
   onGenerateStep3To4,
   onResetWorkflow,
   isAnalyzing,
+  currentUser,
+  users,
 }) => {
   const [selectedPresetId, setSelectedPresetId] = useState<string>("");
+  const [dictionaries, setDictionaries] = useState<Dictionaries>(loadDictionaries);
+
+  useEffect(() => {
+    setDictionaries(loadDictionaries());
+  }, []);
+
+  const isAdmin = currentUser?.role === "admin";
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setAuditData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleAddBrand = () => {
+    const name = prompt("Введите наименование нового бренда:");
+    if (name && name.trim()) {
+      const clean = name.trim();
+      if (!dictionaries.brands.includes(clean)) {
+        const updated = { ...dictionaries, brands: [...dictionaries.brands, clean] };
+        saveDictionaries(updated);
+        setDictionaries(updated);
+        setAuditData((prev) => ({ ...prev, brand: clean }));
+      }
+    }
+  };
+
+  const handleAddCity = () => {
+    const name = prompt("Введите название нового города:");
+    if (name && name.trim()) {
+      const clean = name.trim();
+      if (!dictionaries.cities.includes(clean)) {
+        const updated = { ...dictionaries, cities: [...dictionaries.cities, clean] };
+        saveDictionaries(updated);
+        setDictionaries(updated);
+        setAuditData((prev) => ({ ...prev, city: clean }));
+      }
+    }
+  };
+
+  const handleAddRegion = () => {
+    const name = prompt("Введите название нового региона:");
+    if (name && name.trim()) {
+      const clean = name.trim();
+      if (!dictionaries.regions.includes(clean)) {
+        const updated = { ...dictionaries, regions: [...dictionaries.regions, clean] };
+        saveDictionaries(updated);
+        setDictionaries(updated);
+        setAuditData((prev) => ({ ...prev, region: clean }));
+      }
+    }
   };
 
   const handleLoadPreset = (preset: PresetAuditSample) => {
@@ -207,110 +282,51 @@ export const AuditForm: React.FC<AuditFormProps> = ({
       {/* STEP 1: OPERATOR UPLOADS AUDIO OR TEXT & STARTS ANALYSIS */}
       {currentStep === 1 && (
         <div className="space-y-6 animate-fadeIn">
-          {/* Preset Samples */}
-          <div className="bg-amber-950/20 p-4 rounded-xl border-2 border-yellow-500/60 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-md shadow-yellow-500/10">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-yellow-500/20 text-yellow-400 flex items-center justify-center shrink-0 border border-yellow-500/30">
-                <BookOpen className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-yellow-300">
-                    Шаблоны готовых проверок (Mystery Shopper)
-                  </h3>
-                  <span className="text-[10px] bg-yellow-400 text-slate-950 font-black px-2 py-0.5 rounded uppercase tracking-wider">
-                    Быстрый выбор
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Нажмите на один из шаблонов для быстрой загрузки готового примера
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
-              {AUDIT_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  id={`preset-btn-${preset.id}`}
-                  onClick={() => handleLoadPreset(preset)}
-                  className={`text-xs px-3.5 py-2 rounded-xl border-2 font-bold whitespace-nowrap transition-all ${
-                    selectedPresetId === preset.id
-                      ? "bg-yellow-400 text-slate-950 border-yellow-300 shadow-lg shadow-yellow-500/40 ring-2 ring-yellow-400/50 scale-105"
-                      : "bg-slate-950/90 text-yellow-300 border-yellow-500/50 hover:bg-yellow-500/20 hover:border-yellow-400"
-                  }`}
-                >
-                  {preset.title}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Dialog Source: Audio Upload or Transcript Text */}
+          {/* Dialog Source: Audio Upload */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-blue-400" />
-                <span>Загрузка материалов проверки (Аудиозапись или Стенограмма)</span>
+                <Mic className="w-4 h-4 text-amber-400" />
+                <span>Загрузка аудиозаписи проверки</span>
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Upload Audio Option */}
-              <div className="bg-slate-950 p-4 rounded-xl border border-amber-500/40 bg-amber-500/5 flex flex-col justify-between shadow-lg shadow-amber-500/5 space-y-4">
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Mic className="w-4 h-4 text-amber-400" />
-                      <span className="text-xs font-bold text-amber-300">
-                        1. Загрузить Аудиозапись (MP3, WAV, M4A)
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-snug">
-                    Загрузите аудиозапись контрольной закупки с диктофона. ИИ автоматически распознает речь и извлечет поля на Шаге 2.
-                  </p>
-                </div>
-
+            <div className="bg-slate-950 p-5 rounded-2xl border border-amber-500/40 bg-amber-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-amber-500/5">
+              <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <label className="cursor-pointer inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/50 shadow-sm transition-all">
-                    <Upload className="w-4 h-4 text-amber-300" />
-                    <span>{audioFileName ? audioFileName : "Выбрать файл аудио..."}</span>
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      onChange={handleAudioUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  {audioFileName && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAudioBase64(null);
-                        setAudioFileName(null);
-                      }}
-                      className="text-xs text-red-400 hover:underline px-2.5 py-1.5 bg-red-950/40 rounded-lg border border-red-800/40"
-                    >
-                      Сбросить
-                    </button>
-                  )}
+                  <Mic className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-bold text-amber-300">
+                    Загрузите аудиофайл контрольной закупки (MP3, WAV, M4A)
+                  </span>
                 </div>
+                <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+                  Загрузите аудиозапись с диктофона. ИИ автоматически распознает тип проверки, речь и стандарты BPV, а также автозаполнит все метаданные на Шаге 3.
+                </p>
               </div>
 
-              {/* Transcript Input Option */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                  <span>2. Или вставьте текстовую стенограмму визита:</span>
-                  <span className="text-[10px] text-slate-400 font-normal">С таймкодами и спикерами</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="cursor-pointer inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/50 shadow-sm transition-all">
+                  <Upload className="w-4 h-4 text-amber-300" />
+                  <span>{audioFileName ? audioFileName : "Выбрать файл аудио..."}</span>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleAudioUpload}
+                    className="hidden"
+                  />
                 </label>
-                <textarea
-                  value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
-                  rows={5}
-                  placeholder="[00:02] Покупатель: Здравствуйте! Можно посмотреть смартфоны?&#10;[00:05] Консультант: Добрый день! Конечно, подскажите, какие параметры вас интересуют..."
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl p-3 text-xs text-slate-200 focus:outline-none font-mono resize-y"
-                />
+                {audioFileName && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAudioBase64(null);
+                      setAudioFileName(null);
+                    }}
+                    className="text-xs text-red-400 hover:underline px-2.5 py-2 bg-red-950/40 rounded-lg border border-red-800/40"
+                  >
+                    Сбросить
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -320,9 +336,9 @@ export const AuditForm: React.FC<AuditFormProps> = ({
             <button
               id="start-step1-btn"
               onClick={onStartStep1To2}
-              disabled={isAnalyzing || (!transcript.trim() && !audioBase64)}
+              disabled={isAnalyzing || !audioBase64}
               className={`w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all shadow-xl ${
-                isAnalyzing || (!transcript.trim() && !audioBase64)
+                isAnalyzing || !audioBase64
                   ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
                   : "bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98]"
               }`}
@@ -404,86 +420,279 @@ export const AuditForm: React.FC<AuditFormProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {/* Дата проверки (ВЫДЕЛЕНО ЖЕЛТЫМ С ВЫПАДАЮЩИМ КАЛЕНДАРЕМ) */}
+              {/* Формат / Тип проверки (ОБЯЗАТЕЛЬНОЕ ПОЛЕ НА ШАГЕ 3) */}
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10 col-span-1 md:col-span-2 lg:col-span-3">
+                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Target className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Формат / Тип проверки (Обязательно для отчета) ★</span>
+                  </span>
+                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold uppercase">Обязательное поле</span>
+                </label>
+                <select
+                  name="checkType"
+                  value={auditData.checkType || "1. Контрольная закупка"}
+                  onChange={handleInputChange}
+                  required
+                  className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                >
+                  <option value="1. Контрольная закупка">1. Контрольная закупка (с покупкой и кассовой процедурой)</option>
+                  <option value="2. Mystery shopper (без покупки)">2. Mystery shopper (консультация без покупки и без чека)</option>
+                </select>
+              </div>
+
+              {/* Дата проверки (ВЫДЕЛЕНО ЖЕЛТЫМ С ВЫПАДАЮЩИМ СПИСКОМ) */}
               <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
                 <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-amber-400" />
                     <span>Дата проверки ★</span>
                   </span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Календарь</span>
+                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Выпадающий список</span>
                 </label>
-                <input
-                  type="date"
-                  name="date"
-                  value={auditData.date}
-                  onChange={handleInputChange}
-                  onClick={(e) => (e.currentTarget as any).showPicker?.()}
-                  className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
-                />
-              </div>
-
-              {/* Время проверки (ВЫДЕЛЕНО ЖЕЛТЫМ С ВЫПАДАЮЩИМ ВЫБОРОМ ЧАСОВ И МИНУТ) */}
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
-                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Время проверки (чч:мм) ★</span>
-                  </span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Часы : Минуты</span>
-                </label>
-                <input
-                  type="time"
-                  name="time"
-                  value={auditData.time || "14:30"}
-                  onChange={handleInputChange}
-                  onClick={(e) => (e.currentTarget as any).showPicker?.()}
-                  className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
-                />
-              </div>
-
-              {/* Бренд */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Бренд / Компания</label>
-                <div className="relative">
-                  <Building2 className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    name="brand"
-                    value={auditData.brand}
+                <div className="flex gap-1.5 items-center">
+                  <select
+                    name="date"
+                    value={auditData.date}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold text-slate-200"
-                    placeholder="Бренд компании"
+                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                  >
+                    {!generateRecentDates().some((d) => d.value === auditData.date) && auditData.date && (
+                      <option value={auditData.date}>{auditData.date} (Текущее значение)</option>
+                    )}
+                    {generateRecentDates().map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    name="date"
+                    value={auditData.date}
+                    onChange={handleInputChange}
+                    title="Календарный выбор"
+                    className="w-9 h-8 p-1 bg-slate-950 border border-amber-400/60 rounded-lg text-amber-200 cursor-pointer text-xs shrink-0"
                   />
                 </div>
               </div>
 
-              {/* Филиал */}
+              {/* Время начала проверки */}
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
+                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Время начала проверки ★</span>
+                  </span>
+                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Выпадающий список</span>
+                </label>
+                <div className="flex gap-1.5 items-center">
+                  <select
+                    name="startTime"
+                    value={auditData.startTime || auditData.time || "10:00"}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAuditData((prev) => ({ ...prev, startTime: val, time: val }));
+                    }}
+                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                  >
+                    {(auditData.startTime || auditData.time) && !TIME_SLOTS.includes(auditData.startTime || auditData.time || "") && (
+                      <option value={auditData.startTime || auditData.time}>{auditData.startTime || auditData.time} (Распознано ИИ)</option>
+                    )}
+                    {TIME_SLOTS.map((slot) => (
+                      <option key={slot} value={slot}>
+                        {slot}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="time"
+                    name="startTime"
+                    value={auditData.startTime || auditData.time || "10:00"}
+                    onChange={handleInputChange}
+                    title="Точный выбор времени"
+                    className="w-9 h-8 p-1 bg-slate-950 border border-amber-400/60 rounded-lg text-amber-200 cursor-pointer text-xs shrink-0"
+                  />
+                </div>
+              </div>
+
+              {/* Время завершения проверки */}
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
+                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Время завершения проверки ★</span>
+                  </span>
+                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Выпадающий список</span>
+                </label>
+                <div className="flex gap-1.5 items-center">
+                  <select
+                    name="endTime"
+                    value={auditData.endTime || "10:45"}
+                    onChange={handleInputChange}
+                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                  >
+                    {auditData.endTime && !TIME_SLOTS.includes(auditData.endTime) && (
+                      <option value={auditData.endTime}>{auditData.endTime} (Распознано ИИ)</option>
+                    )}
+                    {TIME_SLOTS.map((slot) => (
+                      <option key={slot} value={slot}>
+                        {slot}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="time"
+                    name="endTime"
+                    value={auditData.endTime || "10:45"}
+                    onChange={handleInputChange}
+                    title="Точный выбор времени"
+                    className="w-9 h-8 p-1 bg-slate-950 border border-amber-400/60 rounded-lg text-amber-200 cursor-pointer text-xs shrink-0"
+                  />
+                </div>
+              </div>
+
+              {/* Бренд */}
               <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Филиал / Адрес</label>
-                <input
-                  type="text"
-                  name="branch"
-                  value={auditData.branch}
-                  onChange={handleInputChange}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold text-slate-200"
-                  placeholder="Филиал или адрес салона"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-slate-400 font-medium">Бренд / Компания</label>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleAddBrand}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Добавить</span>
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Building2 className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                  <select
+                    name="brand"
+                    value={auditData.brand || dictionaries.brands[0]}
+                    onChange={handleInputChange}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
+                  >
+                    {dictionaries.brands.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Город */}
               <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Город</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-slate-400 font-medium">Город</label>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleAddCity}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Добавить</span>
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
-                  <MapPin className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                  <MapPin className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                  <select
+                    name="city"
+                    value={auditData.city || dictionaries.cities[0]}
+                    onChange={handleInputChange}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
+                  >
+                    {dictionaries.cities.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Регион */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-slate-400 font-medium">Регион / Группа</label>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleAddRegion}
+                      className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Добавить</span>
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Globe className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                  <select
+                    name="region"
+                    value={auditData.region || dictionaries.regions[0]}
+                    onChange={handleInputChange}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
+                  >
+                    {dictionaries.regions.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Филиал (номер) */}
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 block">Филиал (номер / адрес)</label>
+                <div className="relative">
+                  <Building2 className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
                   <input
                     type="text"
-                    name="city"
-                    value={auditData.city}
+                    name="branch"
+                    value={auditData.branch}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold text-slate-200"
-                    placeholder="Город"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold"
+                    placeholder="№ филиала или адрес салона"
                   />
+                </div>
+              </div>
+
+              {/* Руководитель (выпадающий список из числа пользователей в роли руководителей) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-slate-400 font-medium">Руководитель</label>
+                  <span className="text-[10px] text-slate-500">Зарегистрированные</span>
+                </div>
+                <div className="relative">
+                  <UserCheck className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                  <select
+                    name="manager"
+                    value={auditData.manager || ""}
+                    onChange={handleInputChange}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
+                  >
+                    <option value="">— Выберите руководителя —</option>
+                    {(users?.filter((u) => u.role === "manager") || []).map((m) => (
+                      <option key={m.id} value={m.name}>
+                        {m.name} {m.position ? `(${m.position})` : "(Руководитель)"}
+                      </option>
+                    ))}
+                    {(users?.filter((u) => u.role === "admin") || []).map((a) => (
+                      <option key={a.id} value={a.name}>
+                        {a.name} (Администратор)
+                      </option>
+                    ))}
+                    {(!users || users.filter((u) => u.role === "manager" || u.role === "admin").length === 0) && (
+                      <option value="Петров В.В.">Петров В.В. (Руководитель филиала)</option>
+                    )}
+                  </select>
                 </div>
               </div>
 

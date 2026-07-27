@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { UserRole, UserAccount } from "../types";
+import { UserRole, UserAccount, AppNotification } from "../types";
+import { NotificationCenter } from "./NotificationCenter";
 import {
   ShieldCheck,
   FileSearch,
@@ -28,6 +29,10 @@ interface HeaderProps {
   onSwitchRoleQuick: (role: UserRole) => void;
   theme: "dark" | "light";
   onToggleTheme: () => void;
+  notifications?: AppNotification[];
+  onMarkNotificationAsRead?: (id: string) => void;
+  onMarkAllNotificationsAsRead?: () => void;
+  onSelectAuditFromNotif?: (auditId: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -39,6 +44,10 @@ export const Header: React.FC<HeaderProps> = ({
   onSwitchRoleQuick,
   theme,
   onToggleTheme,
+  notifications = [],
+  onMarkNotificationAsRead = () => {},
+  onMarkAllNotificationsAsRead = () => {},
+  onSelectAuditFromNotif = () => {},
 }) => {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [showRoleMenu, setShowRoleMenu] = useState(false);
@@ -72,7 +81,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header id="studio-header" className="sticky top-0 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white px-4 lg:px-8 py-3 transition-all shadow-sm">
+    <header id="studio-header" className="sticky top-0 z-40 bg-[#0b1329]/95 backdrop-blur-md border-b border-slate-800/80 text-white px-4 lg:px-8 py-3 transition-all shadow-xl">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         {/* Logo & Brand */}
         <div className="flex items-center gap-3">
@@ -81,14 +90,14 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-bold text-lg tracking-tight text-slate-900 dark:text-white">
+              <h1 className="font-bold text-lg tracking-tight text-white">
                 ИИ-Агент Аудитор Контрольных Закупок
               </h1>
-              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
                 Mystery Shopper AI
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">
+            <p className="text-xs text-slate-400 hidden sm:block">
               Мониторинг BPV Index, речевых стандартов и мастер управления аудитами
             </p>
           </div>
@@ -107,15 +116,24 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Theme Switcher Toggle */}
           <button
             onClick={onToggleTheme}
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-700 transition-all"
-            title={theme === "dark" ? "Переключить на Светлую тему" : "Переключить на Темную тему"}
+            className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700 transition-all flex items-center gap-1.5"
+            title="Переключить оттенок темно-синей темы"
           >
             {theme === "dark" ? (
-              <Sun className="w-4 h-4 text-amber-400" />
+              <Moon className="w-4 h-4 text-blue-400" />
             ) : (
-              <Moon className="w-4 h-4 text-indigo-600" />
+              <Sun className="w-4 h-4 text-amber-400" />
             )}
           </button>
+
+          {/* Notification Center */}
+          <NotificationCenter
+            notifications={notifications}
+            currentUser={currentUser || undefined}
+            onMarkAsRead={onMarkNotificationAsRead}
+            onMarkAllAsRead={onMarkAllNotificationsAsRead}
+            onSelectAuditFromNotif={onSelectAuditFromNotif}
+          />
 
           {/* User Profile Badge Dropdown */}
           <div className="relative">
@@ -123,18 +141,18 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={() => setShowRoleMenu(!showRoleMenu)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
                 userRole === "admin"
-                  ? "bg-amber-500/10 dark:bg-amber-950/80 border-amber-500/60 text-amber-700 dark:text-amber-200 hover:bg-amber-500/20"
+                  ? "bg-amber-500/10 bg-amber-950/80 border-amber-500/60 text-amber-200 hover:bg-amber-500/20"
                   : userRole === "manager"
-                  ? "bg-indigo-500/10 dark:bg-indigo-950/80 border-indigo-500/60 text-indigo-700 dark:text-indigo-200 hover:bg-indigo-500/20"
-                  : "bg-blue-500/10 dark:bg-blue-950/80 border-blue-500/60 text-blue-700 dark:text-blue-200 hover:bg-blue-500/20"
+                  ? "bg-indigo-500/10 bg-indigo-950/80 border-indigo-500/60 text-indigo-200 hover:bg-indigo-500/20"
+                  : "bg-blue-500/10 bg-blue-950/80 border-blue-500/60 text-blue-200 hover:bg-blue-500/20"
               }`}
             >
               {userRole === "admin" ? (
-                <Shield className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+                <Shield className="w-3.5 h-3.5 text-amber-400" />
               ) : userRole === "manager" ? (
-                <Crown className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                <Crown className="w-3.5 h-3.5 text-indigo-400" />
               ) : (
-                <UserCheck className="w-3.5 h-3.5 text-blue-500 dark:text-cyan-400" />
+                <UserCheck className="w-3.5 h-3.5 text-cyan-400" />
               )}
               <span>
                 {currentUser?.name || "Пользователь"} (

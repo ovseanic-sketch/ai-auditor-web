@@ -3,14 +3,15 @@ import { Header } from "./components/Header";
 import { AuditForm } from "./components/AuditForm";
 import { AuditReportView } from "./components/AuditReportView";
 import { Dashboard } from "./components/Dashboard";
-import { AuditRegistry, AuditRecord, INITIAL_AUDIT_RECORDS } from "./components/AuditRegistry";
+import { AuditRegistry, INITIAL_AUDIT_RECORDS } from "./components/AuditRegistry";
 import { UserManagement } from "./components/UserManagement";
 import { LoginPage } from "./components/LoginPage";
 import { DEFAULT_USERS } from "./data/defaultUsers";
 import { AUDIT_PRESETS } from "./data/auditPresets";
-import { AuditFormData, UserAccount, UserRole } from "./types";
+import { AuditFormData, UserAccount, UserRole, AuditRecord, AppNotification } from "./types";
 import { analyzeMysteryShopperClient } from "./services/geminiService";
 import { updateReportMetadata } from "./utils/cleanMarkdown";
+import { loadNotifications, saveNotifications, createNotification } from "./utils/notificationStore";
 import { AlertCircle, X } from "lucide-react";
 
 export default function App() {
@@ -28,11 +29,7 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem("okk_theme_v1", theme);
-      if (theme === "dark") {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
+      document.documentElement.classList.add("dark");
     } catch (e) {
       console.error("Failed to set theme", e);
     }
@@ -198,6 +195,35 @@ export default function App() {
     }
   }, [auditRecords]);
 
+  // Notifications State & Handlers
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
+  const [selectedAuditIdForModal, setSelectedAuditIdForModal] = useState<string | null>(null);
+
+  const handleMarkNotificationAsRead = (id: string) => {
+    setNotifications((prev) => {
+      const updated = prev.map((n) => (n.id === id ? { ...n, read: true } : n));
+      saveNotifications(updated);
+      return updated;
+    });
+  };
+
+  const handleMarkAllNotificationsAsRead = () => {
+    setNotifications((prev) => {
+      const updated = prev.map((n) => ({ ...n, read: true }));
+      saveNotifications(updated);
+      return updated;
+    });
+  };
+
+  const handleSelectAuditFromNotif = (auditId: string) => {
+    setAuditSubView("registry");
+    setSelectedAuditIdForModal(auditId);
+  };
+
+  const handleRefreshNotifications = () => {
+    setNotifications(loadNotifications());
+  };
+
   // App State & API Health
   const [hasApiKey, setHasApiKey] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -280,26 +306,70 @@ export default function App() {
       setAuditReport(updatedReport);
     }
 
+    const timestamp = new Date().toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const reportStr = updatedReport || auditReport || "";
+    const bpvMatch = reportStr.match(/BPV INDEX.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) || reportStr.match(/(?:BPV|Service Index).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
+    const speechMatch = reportStr.match(/РЕЧЕВОЙ ИНДЕКС.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) || reportStr.match(/(?:Речевой|Speech|Диалог).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
+    const salesMatch = reportStr.match(/SALES DRIVE.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) || reportStr.match(/(?:Sales Drive|коммерческой).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
+
+    const extractedBpv = bpvMatch ? parseFloat(bpvMatch[1]) : 92;
+    const extractedSpeech = speechMatch ? parseFloat(speechMatch[1]) : 92;
+    const extractedSales = salesMatch ? parseFloat(salesMatch[1]) : 85;
+
     // Save final record to Persistent Audit Registry with all Step 3 corrected metadata
     const newRecord: AuditRecord = {
       id: `AUD-2026-${String(auditRecords.length + 1).padStart(3, "0")}`,
       date: auditData.date || new Date().toLocaleDateString("ru-RU"),
+      startTime: auditData.startTime || "10:00",
+      endTime: auditData.endTime || "10:45",
       brand: auditData.brand || "Orange",
       branch: auditData.branch || "Филиал №1",
       city: auditData.city || "Кишинев",
-      group: "Центральный регион",
-      checkType: auditData.checkType || "Mystery shopper / Оценка BPV",
+      group: auditData.region || "Центральный регион",
+      manager: auditData.manager || "Петров В.В.",
+      checkType: auditData.checkType || "1. Контрольная закупка",
       employeeCode: auditData.employeeCode || "Консультант",
       inspector: auditData.inspector || currentUser?.name || "Инспектор ОКК",
-      bpvScore: 92,
-      speechScore: 92,
-      salesDriveScore: 85,
+      bpvScore: extractedBpv,
+      speechScore: extractedSpeech,
+      salesDriveScore: extractedSales,
       stopFactors: 0,
-      reportSummary: "Автоматически сгенерированный и утвержденный оператором акт оценки ОКК.",
+      reportSummary: "Автоматически сгенерированный и направленный на согласование Акт оценки ОКК.",
       fullReportText: updatedReport || auditReport || "",
+      approvalStatus: "PENDING_APPROVAL",
+      approvalHistory: [
+        {
+          timestamp,
+          user: currentUser?.name || "Аудитор ОКК",
+          role: "Проверяющий",
+          action: "Сформировал Акт оценки ОКК и направил на согласование руководителю",
+        },
+      ],
     };
 
     setAuditRecords((prev) => [newRecord, ...prev]);
+
+    // Send System & E-mail Notification to Manager
+    createNotification({
+      recipientName: auditData.manager || "Петров В.В.",
+      recipientRole: "manager",
+      recipientEmail: "manager@company.com",
+      title: `Новый Акт оценки ОКК (${newRecord.id}) на согласовании`,
+      message: `Аудитор ${newRecord.inspector} сформировал Акт ${newRecord.id} (${newRecord.brand}, ${newRecord.city}). Ознакомьтесь с результатами и утвердите их или отправьте на пересмотр.`,
+      auditId: newRecord.id,
+      type: "NEW_AUDIT_FOR_APPROVAL",
+      emailSubject: `[ОКК] Поступил новый Акт оценки ${newRecord.id} на согласование`,
+      emailBody: `Уважаемый(ая) ${newRecord.manager || "Руководитель"}!\n\nАудитор ${newRecord.inspector} сформировал новый Акт оценки ОКК ${newRecord.id}.\nФилиал: ${newRecord.branch} (${newRecord.city})\nБренд: ${newRecord.brand}\nОценка BPV: ${newRecord.bpvScore}%\n\nПожалуйста, войдите в систему ОКК, ознакомьтесь с подробным отчетом и утвердите результаты или отправьте на пересмотр с комментарием.`,
+    });
+
+    setNotifications(loadNotifications());
   };
 
   // Reset entire workflow back to Step 1
@@ -315,7 +385,7 @@ export default function App() {
   }
 
   return (
-    <div id="product-photo-studio-root" className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors duration-300 selection:bg-blue-500 selection:text-white">
+    <div id="product-photo-studio-root" className="min-h-screen bg-[#0b1329] text-slate-100 flex flex-col font-sans transition-colors duration-300 selection:bg-blue-500 selection:text-white">
       {/* Header Navigation */}
       <Header
         hasApiKey={hasApiKey}
@@ -326,6 +396,10 @@ export default function App() {
         onSwitchRoleQuick={handleSwitchRoleQuick}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        notifications={notifications}
+        onMarkNotificationAsRead={handleMarkNotificationAsRead}
+        onMarkAllNotificationsAsRead={handleMarkAllNotificationsAsRead}
+        onSelectAuditFromNotif={handleSelectAuditFromNotif}
       />
 
       {/* Main Content Workspace */}
@@ -371,6 +445,10 @@ export default function App() {
             <AuditRegistry
               records={auditRecords}
               onUpdateRecords={setAuditRecords}
+              currentUser={currentUser}
+              onNotificationCreated={handleRefreshNotifications}
+              selectedRecordIdForModal={selectedAuditIdForModal}
+              onClearSelectedModalId={() => setSelectedAuditIdForModal(null)}
             />
           ) : (
             <>
@@ -389,6 +467,8 @@ export default function App() {
                 onGenerateStep3To4={handleGenerateStep3To4}
                 onResetWorkflow={handleResetWorkflow}
                 isAnalyzing={isAnalyzing}
+                currentUser={currentUser}
+                users={users}
               />
 
               {currentStep === 4 && (

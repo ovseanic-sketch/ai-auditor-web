@@ -17,26 +17,41 @@ import {
   AlertOctagon,
   CheckCircle2,
   Mic,
+  History,
+  Clock,
+  RotateCcw,
+  FileCheck,
+  MessageSquare,
 } from "lucide-react";
-import { AuditFormData } from "../types";
+import { AuditFormData, ApprovalStatus, ApprovalHistoryItem } from "../types";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
 import { cleanMarkdownReport } from "../utils/cleanMarkdown";
 import { CardSkeleton } from "./SkeletonLoader";
 
+export interface AuditReportData extends Partial<AuditFormData> {
+  id?: string;
+  approvalStatus?: ApprovalStatus;
+  approvalHistory?: ApprovalHistoryItem[];
+  managerComment?: string;
+  auditorRevisionComment?: string;
+  approvedAt?: string;
+  approvedBy?: string;
+}
+
 interface AuditReportViewProps {
   report: string | null;
   isAnalyzing: boolean;
-  auditData?: AuditFormData;
-  onReset: () => void;
+  auditData?: AuditReportData;
+  onReset?: () => void;
 }
 
 export const AuditReportView: React.FC<AuditReportViewProps> = ({
   report,
   isAnalyzing,
   auditData,
+  onReset,
 }) => {
   const [copiedReport, setCopiedReport] = useState(false);
-  const [copiedCsvRow, setCopiedCsvRow] = useState(false);
 
   if (isAnalyzing) {
     return (
@@ -75,22 +90,18 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
     );
   }
 
-  const cleanedReport = cleanMarkdownReport(report);
+  const bpvTextMatch =
+    report?.match(/BPV INDEX.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) ||
+    report?.match(/(?:BPV|Service Index).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
 
-  // Extract CSV row from markdown response if present
-  let csvRowText = "";
-  const csvMatch = cleanedReport.match(/```csv\n([\s\S]*?)\n```/);
-  if (csvMatch && csvMatch[1]) {
-    csvRowText = csvMatch[1].trim();
-  } else {
-    const lines = cleanedReport.split("\n");
-    const foundLine = lines.find((l) => l.includes(";") && l.split(";").length >= 5);
-    if (foundLine) csvRowText = foundLine.trim();
-  }
+  const bpvScore =
+    typeof auditData?.bpvScore === "number" && !isNaN(auditData.bpvScore)
+      ? auditData.bpvScore
+      : bpvTextMatch
+      ? parseFloat(bpvTextMatch[1])
+      : 92;
 
-  // Parse Scores and Critical Violations for Infographic Panel
-  const bpvMatch = cleanedReport.match(/BPV.*?:?\s*(\d+(?:\.\d+)?)\s*%/i) || cleanedReport.match(/Service Index.*?:?\s*(\d+(?:\.\d+)?)\s*%/i);
-  const bpvScore = bpvMatch ? parseFloat(bpvMatch[1]) : 92;
+  const cleanedReport = cleanMarkdownReport(report, bpvScore);
 
   const isMysteryShopper =
     auditData?.checkType?.includes("Mystery") ||
@@ -98,11 +109,28 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
     cleanedReport.includes("2. Mystery shopper") ||
     cleanedReport.includes("Без покупки");
 
-  const speechMatch = cleanedReport.match(/Речевой.*?:?\s*(\d+(?:\.\d+)?)\s*%/i) || cleanedReport.match(/Speech.*?:?\s*(\d+(?:\.\d+)?)\s*%/i) || cleanedReport.match(/Диалог.*?:?\s*(\d+(?:\.\d+)?)\s*%/i);
-  const speechScore = speechMatch ? `${speechMatch[1]}%` : "92%";
+  const speechMatch =
+    cleanedReport.match(/РЕЧЕВОЙ ИНДЕКС.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) ||
+    cleanedReport.match(/(?:Речевой|Speech|Диалог).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
 
-  const salesMatch = cleanedReport.match(/Sales Drive.*?:?\s*(\d+(?:\.\d+)?)\s*%/i) || cleanedReport.match(/коммерческой.*?:?\s*(\d+(?:\.\d+)?)\s*%/i);
-  const salesScore = salesMatch ? parseFloat(salesMatch[1]) : 85;
+  const speechScoreVal =
+    typeof auditData?.speechScore === "number" && !isNaN(auditData.speechScore)
+      ? auditData.speechScore
+      : speechMatch
+      ? parseFloat(speechMatch[1])
+      : 92;
+  const speechScore = `${speechScoreVal}%`;
+
+  const salesMatch =
+    cleanedReport.match(/SALES DRIVE.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) ||
+    cleanedReport.match(/(?:Sales Drive|коммерческой).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
+
+  const salesScore =
+    typeof auditData?.salesDriveScore === "number" && !isNaN(auditData.salesDriveScore)
+      ? auditData.salesDriveScore
+      : salesMatch
+      ? parseFloat(salesMatch[1])
+      : 85;
 
   // Detect critical violations
   const lowerReport = cleanedReport.toLowerCase();
@@ -133,14 +161,6 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
     navigator.clipboard.writeText(cleanedReport);
     setCopiedReport(true);
     setTimeout(() => setCopiedReport(false), 2000);
-  };
-
-  const handleCopyCsvRow = () => {
-    if (csvRowText) {
-      navigator.clipboard.writeText(csvRowText);
-      setCopiedCsvRow(true);
-      setTimeout(() => setCopiedCsvRow(false), 2000);
-    }
   };
 
   const handleDownloadReportMd = () => {
@@ -230,39 +250,19 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
               </>
             )}
           </button>
+
+          {onReset && (
+            <button
+              onClick={onReset}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all cursor-pointer"
+              title="Закрыть окно просмотра"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+              <span>Закрыть</span>
+            </button>
+          )}
         </div>
       </div>
-
-      {/* Csv Export Bar for Master Table */}
-      {csvRowText && (
-        <div className="bg-slate-950 p-3.5 rounded-xl border border-blue-500/30 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-slate-300 overflow-hidden">
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-semibold text-emerald-300 shrink-0">Строка для реестра:</span>
-            <code className="text-[11px] bg-slate-900 px-2 py-1 rounded font-mono text-slate-300 truncate max-w-xs sm:max-w-md border border-slate-800">
-              {csvRowText}
-            </code>
-          </div>
-
-          <button
-            id="copy-csv-row-btn"
-            onClick={handleCopyCsvRow}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
-          >
-            {copiedCsvRow ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Скопировано</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3.5 h-3.5" />
-                <span>Скопировать для Excel / Google Sheets</span>
-              </>
-            )}
-          </button>
-        </div>
-      )}
 
       {/* Visual Infographic Panel for Section 3 */}
       <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
@@ -398,6 +398,113 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
         <div className="markdown-report-body space-y-4">
           <Markdown>{cleanedReport}</Markdown>
         </div>
+      </div>
+
+      {/* SECTION 4: ИСТОРИЯ СОГЛАСОВАНИЯ, ПРОТЕСТОВ И ДЕЙСТВИЙ АУДИТОРА (ПРОТОКОЛ АКТА) */}
+      <div className="bg-slate-950 p-5 sm:p-6 rounded-2xl border border-slate-800 space-y-5 shadow-xl">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <History className="w-5 h-5 text-blue-400" />
+            <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wide">
+              4. ИСТОРИЯ СОГЛАСОВАНИЯ, ПРОТЕСТОВ И РЕШЕНИЙ АУДИТОРА (ПРОТОКОЛ ДЕЙСТВИЙ)
+            </h3>
+          </div>
+          <span className="text-[11px] text-slate-400 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 font-mono">
+            Фиксация всех решений и комментариев
+          </span>
+        </div>
+
+        {/* Status Banner */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/90 border border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 font-semibold">Статус Акта:</span>
+            {auditData?.approvalStatus === "APPROVED" && (
+              <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Утвержден ({auditData?.approvedBy || auditData?.manager || "Руководитель"})
+              </span>
+            )}
+            {auditData?.approvalStatus === "REVISION_REQUESTED" && (
+              <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5 text-amber-400 animate-spin-slow" /> Подан протест / На пересмотре у проверяющего
+              </span>
+            )}
+            {auditData?.approvalStatus === "FINALIZED" && (
+              <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                <FileCheck className="w-3.5 h-3.5 text-blue-400" /> Финализирован аудитором после протеста
+              </span>
+            )}
+            {(!auditData?.approvalStatus || auditData?.approvalStatus === "PENDING_APPROVAL") && (
+              <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-400" /> На согласовании у руководителя
+              </span>
+            )}
+          </div>
+
+          <div className="text-xs text-slate-300 font-medium">
+            Текущая оценка BPV: <span className="font-bold text-amber-400">{bpvScore}%</span>
+          </div>
+        </div>
+
+        {/* Manager Comment / Protest Card */}
+        {auditData?.managerComment && (
+          <div className="p-4 rounded-xl bg-amber-950/30 border border-amber-500/40 space-y-2">
+            <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
+              <MessageSquare className="w-4 h-4 text-amber-400" />
+              <span>Замечания / Поданный протест ({auditData.manager || "Руководитель"}):</span>
+            </div>
+            <p className="text-xs text-amber-200/90 italic bg-slate-950/80 p-3 rounded-lg border border-amber-500/20 leading-relaxed">
+              «{auditData.managerComment}»
+            </p>
+          </div>
+        )}
+
+        {/* Auditor Decision Card */}
+        {auditData?.auditorRevisionComment && (
+          <div className="p-4 rounded-xl bg-blue-950/30 border border-blue-500/40 space-y-2">
+            <div className="flex items-center gap-2 text-blue-300 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-blue-400" />
+              <span>Решение и действия Аудитора / Проверяющего ({auditData.inspector || "Инспектор ОКК"}):</span>
+            </div>
+            <p className="text-xs text-blue-200/90 italic bg-slate-950/80 p-3 rounded-lg border border-blue-500/20 leading-relaxed">
+              «{auditData.auditorRevisionComment}»
+            </p>
+          </div>
+        )}
+
+        {/* Detailed Timeline / History Log */}
+        {auditData?.approvalHistory && auditData.approvalHistory.length > 0 ? (
+          <div className="space-y-2 pt-1">
+            <div className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <History className="w-4 h-4 text-blue-400" />
+              <span>Протокол согласования и история всех действий ({auditData.approvalHistory.length}):</span>
+            </div>
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800">
+              {auditData.approvalHistory.map((item, idx) => (
+                <div key={idx} className="p-3.5 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span className="font-bold text-slate-200 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-400" />
+                      {item.user} <span className="text-slate-400 font-normal">({item.role})</span>
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-400">{item.timestamp}</span>
+                  </div>
+                  <div className="text-slate-200 font-semibold pl-4">
+                    {item.action}
+                  </div>
+                  {item.comment && (
+                    <div className="ml-4 mt-1 text-slate-300 italic bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 text-[11px] leading-relaxed">
+                      «{item.comment}»
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-slate-400 italic bg-slate-900/50 p-3.5 rounded-xl border border-slate-800 text-center">
+            Протокол согласования пуст. Все поступающие действия (подача протеста, замечания руководителя, ответы и решения аудитора) автоматически фиксируются в данном разделе.
+          </div>
+        )}
       </div>
     </div>
   );
