@@ -45,6 +45,9 @@ interface AuditFormProps {
   isAnalyzing: boolean;
   currentUser?: UserAccount;
   users?: UserAccount[];
+  auditReport?: string | null;
+  setAuditReport?: (report: string | null) => void;
+  originalReport?: string | null;
 }
 
 const TIME_SLOTS = Array.from({ length: 96 }, (_, i) => {
@@ -86,6 +89,9 @@ export const AuditForm: React.FC<AuditFormProps> = ({
   isAnalyzing,
   currentUser,
   users,
+  auditReport,
+  setAuditReport,
+  originalReport,
 }) => {
   const [selectedPresetId, setSelectedPresetId] = useState<string>("");
   const [dictionaries, setDictionaries] = useState<Dictionaries>(loadDictionaries);
@@ -420,42 +426,40 @@ export const AuditForm: React.FC<AuditFormProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {/* Формат / Тип проверки (ОБЯЗАТЕЛЬНОЕ ПОЛЕ НА ШАГЕ 3) */}
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10 col-span-1 md:col-span-2 lg:col-span-3">
-                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
+              {/* Формат / Тип проверки */}
+              <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Формат / Тип проверки (Обязательно для отчета) ★</span>
+                    <Target className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Формат / Тип проверки</span>
                   </span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold uppercase">Обязательное поле</span>
                 </label>
                 <select
                   name="checkType"
                   value={auditData.checkType || "1. Контрольная закупка"}
                   onChange={handleInputChange}
                   required
-                  className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
                 >
                   <option value="1. Контрольная закупка">1. Контрольная закупка (с покупкой и кассовой процедурой)</option>
                   <option value="2. Mystery shopper (без покупки)">2. Mystery shopper (консультация без покупки и без чека)</option>
                 </select>
               </div>
 
-              {/* Дата проверки (ВЫДЕЛЕНО ЖЕЛТЫМ С ВЫПАДАЮЩИМ СПИСКОМ) */}
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
-                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
+              {/* Дата проверки */}
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Дата проверки ★</span>
+                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Дата проверки</span>
                   </span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Выпадающий список</span>
                 </label>
                 <div className="flex gap-1.5 items-center">
                   <select
                     name="date"
                     value={auditData.date}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
                   >
                     {!generateRecentDates().some((d) => d.value === auditData.date) && auditData.date && (
                       <option value={auditData.date}>{auditData.date} (Текущее значение)</option>
@@ -472,19 +476,18 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                     value={auditData.date}
                     onChange={handleInputChange}
                     title="Календарный выбор"
-                    className="w-9 h-8 p-1 bg-slate-950 border border-amber-400/60 rounded-lg text-amber-200 cursor-pointer text-xs shrink-0"
+                    className="w-9 h-8 p-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 cursor-pointer text-xs shrink-0"
                   />
                 </div>
               </div>
 
               {/* Время начала проверки */}
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
-                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Время начала проверки ★</span>
+                    <Clock className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Время начала проверки</span>
                   </span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Выпадающий список</span>
                 </label>
                 <div className="flex gap-1.5 items-center">
                   <select
@@ -494,7 +497,7 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                       const val = e.target.value;
                       setAuditData((prev) => ({ ...prev, startTime: val, time: val }));
                     }}
-                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
                   >
                     {(auditData.startTime || auditData.time) && !TIME_SLOTS.includes(auditData.startTime || auditData.time || "") && (
                       <option value={auditData.startTime || auditData.time}>{auditData.startTime || auditData.time} (Распознано ИИ)</option>
@@ -511,26 +514,25 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                     value={auditData.startTime || auditData.time || "10:00"}
                     onChange={handleInputChange}
                     title="Точный выбор времени"
-                    className="w-9 h-8 p-1 bg-slate-950 border border-amber-400/60 rounded-lg text-amber-200 cursor-pointer text-xs shrink-0"
+                    className="w-9 h-8 p-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 cursor-pointer text-xs shrink-0"
                   />
                 </div>
               </div>
 
               {/* Время завершения проверки */}
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
-                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Время завершения проверки ★</span>
+                    <Clock className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Время завершения проверки</span>
                   </span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Выпадающий список</span>
                 </label>
                 <div className="flex gap-1.5 items-center">
                   <select
                     name="endTime"
                     value={auditData.endTime || "10:45"}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
                   >
                     {auditData.endTime && !TIME_SLOTS.includes(auditData.endTime) && (
                       <option value={auditData.endTime}>{auditData.endTime} (Распознано ИИ)</option>
@@ -547,7 +549,7 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                     value={auditData.endTime || "10:45"}
                     onChange={handleInputChange}
                     title="Точный выбор времени"
-                    className="w-9 h-8 p-1 bg-slate-950 border border-amber-400/60 rounded-lg text-amber-200 cursor-pointer text-xs shrink-0"
+                    className="w-9 h-8 p-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 cursor-pointer text-xs shrink-0"
                   />
                 </div>
               </div>
@@ -696,39 +698,33 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                 </div>
               </div>
 
-              {/* Сотрудник (ВЫДЕЛЕНО ЖЕЛТЫМ) */}
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
-                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
-                  <span>Сотрудник (ФИО / Код) ★</span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Редактируемое</span>
-                </label>
+              {/* Сотрудник */}
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 block">Сотрудник (ФИО / Код)</label>
                 <div className="relative">
-                  <UserCheck className="w-3.5 h-3.5 text-amber-400 absolute left-3 top-2.5" />
+                  <UserCheck className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
                   <input
                     type="text"
                     name="employeeCode"
                     value={auditData.employeeCode}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg pl-9 pr-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold"
                     placeholder="Укажите ФИО сотрудника"
                   />
                 </div>
               </div>
 
-              {/* Проверяющий (ВЫДЕЛЕНО ЖЕЛТЫМ) */}
-              <div className="p-2.5 rounded-xl bg-amber-500/10 border-2 border-amber-400/80 shadow-md shadow-amber-500/10">
-                <label className="text-xs text-amber-300 font-bold mb-1 flex items-center justify-between">
-                  <span>Проверяющий / Аудитор ★</span>
-                  <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded font-semibold">Редактируемое</span>
-                </label>
+              {/* Проверяющий */}
+              <div>
+                <label className="text-xs text-slate-400 font-medium mb-1 block">Проверяющий / Аудитор</label>
                 <div className="relative">
-                  <UserCheck className="w-3.5 h-3.5 text-amber-400 absolute left-3 top-2.5" />
+                  <UserCheck className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
                   <input
                     type="text"
                     name="inspector"
                     value={auditData.inspector}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950/90 border border-amber-400/60 focus:border-amber-300 rounded-lg pl-9 pr-3 py-2 text-xs text-amber-200 font-bold focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold"
                     placeholder="ФИО инспектора"
                   />
                 </div>
@@ -794,6 +790,90 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                   placeholder="Заметки проверяющего..."
                 />
               </div>
+            </div>
+          </div>
+
+          {/* EDITABLE DETAILED EXPERT REPORT BLOCK (STEP 3) */}
+          <div className="space-y-3 pt-4 border-t border-slate-800">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
+              <div>
+                <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-amber-400" />
+                  <span>Подробный экспертный отчёт по результатам проверки (редактируемый фрагмент)</span>
+                </h3>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  Ниже представлен подробный экспертный отчёт по результатам проведения проверки методом «Контрольная закупка» (Mystery Shopper с покупкой) на основе аудиозаписи диалога.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const textarea = document.getElementById("expert-report-textarea") as HTMLTextAreaElement;
+                    if (textarea && auditReport && setAuditReport) {
+                      const start = textarea.selectionStart;
+                      const end = textarea.selectionEnd;
+                      if (start !== end) {
+                        const selectedText = auditReport.substring(start, end);
+                        const tagged = `<span style="color: #ef4444; font-weight: bold; background-color: rgba(239, 68, 68, 0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.3);">${selectedText} <small style="font-size: 10px; font-weight: normal; color: #f87171;">(внесено вручную проверяющим)</small></span>`;
+                        const updated = auditReport.substring(0, start) + tagged + auditReport.substring(end);
+                        setAuditReport(updated);
+                      } else {
+                        alert("Выделите мышью фрагмент текста в поле ниже, который необходимо пометить как ручную правку!");
+                      }
+                    }
+                  }}
+                  className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Отметить выделенный фрагмент текста красным цветом с пометкой (внесено вручную проверяющим)"
+                >
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <span>Выделить ручную правку (красный цвет)</span>
+                </button>
+
+                {originalReport && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm("Сбросить внесенные вручную правки в тексте отчёта к исходному варианту ИИ?")) {
+                        setAuditReport?.(originalReport);
+                      }
+                    }}
+                    className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                  >
+                    Сбросить
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-xl text-[11px] text-amber-200/90 leading-relaxed space-y-1">
+              <p className="font-bold text-amber-300 flex items-center gap-1.5">
+                <span>💡 Корректировка отчёта проверяющим на Шаге 3:</span>
+              </p>
+              <p className="text-slate-300">
+                Вы можете вручную внести любые изменения прямо в текст отчёта ниже (включая таблицу паспорта, комментарии, баллы). Все внесённые вами изменения будут учтены при формировании финального Акта и выделены <strong className="text-red-400 font-bold">красным цветом</strong> с пометкой <em className="text-red-300 font-semibold">(внесено вручную проверяющим)</em>.
+              </p>
+            </div>
+
+            <div className="relative">
+              <textarea
+                id="expert-report-textarea"
+                value={auditReport || ""}
+                onChange={(e) => setAuditReport?.(e.target.value)}
+                rows={16}
+                className="w-full bg-slate-950 border border-slate-800 focus:border-amber-400/80 rounded-xl p-4 text-xs font-mono text-slate-200 leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-400/20 shadow-inner"
+                placeholder="Ниже представлен подробный экспертный отчёт по результатам проведения проверки методом «Контрольная закупка» (Mystery Shopper с покупкой) на основе аудиозаписи диалога.
+
+1. ПАСПОРТ ПРОВЕРКИ И МЕТАДАННЫЕ ВИЗИТА
+| Параметр | Значение |
+|---|---|
+| Дата и время проверки | 2026-07-27 |
+| Формат проверки | 1. Контрольная закупка |
+| Бренд компании | Orange Moldova |
+| Филиал / Подразделение | 18 |
+| Город / Локация | Оргеев (Кишинев) |..."
+              />
             </div>
           </div>
 

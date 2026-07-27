@@ -10,7 +10,7 @@ import { DEFAULT_USERS } from "./data/defaultUsers";
 import { AUDIT_PRESETS } from "./data/auditPresets";
 import { AuditFormData, UserAccount, UserRole, AuditRecord, AppNotification } from "./types";
 import { analyzeMysteryShopperClient } from "./services/geminiService";
-import { updateReportMetadata } from "./utils/cleanMarkdown";
+import { cleanMarkdownReport, updateReportMetadata, highlightManualEdits, ReportMetadataInput } from "./utils/cleanMarkdown";
 import { loadNotifications, saveNotifications, createNotification } from "./utils/notificationStore";
 import { AlertCircle, X } from "lucide-react";
 
@@ -248,6 +248,8 @@ export default function App() {
   const [audioFileName, setAudioFileName] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [auditReport, setAuditReport] = useState<string | null>(null);
+  const [originalReport, setOriginalReport] = useState<string | null>(null);
+  const [originalMeta, setOriginalMeta] = useState<ReportMetadataInput | undefined>(undefined);
 
   // STEP 1 -> STEP 2: Operator starts AI Analysis
   const handleStartStep1To2 = async () => {
@@ -269,9 +271,11 @@ export default function App() {
       });
 
       setAuditReport(data.report);
+      setOriginalReport(data.report);
 
       // Step 2 AI auto-fills metadata fields for Step 3 operator review
       if (data.extractedMeta) {
+        setOriginalMeta(data.extractedMeta);
         setAuditData((prev) => ({
           ...prev,
           brand: data.extractedMeta?.brand || prev.brand || "Orange",
@@ -301,8 +305,9 @@ export default function App() {
   const handleGenerateStep3To4 = () => {
     setCurrentStep(4);
 
-    const updatedReport = auditReport ? updateReportMetadata(auditReport, auditData) : null;
+    let updatedReport = auditReport ? updateReportMetadata(auditReport, auditData, originalMeta) : null;
     if (updatedReport) {
+      updatedReport = highlightManualEdits(updatedReport, originalReport);
       setAuditReport(updatedReport);
     }
 
@@ -376,6 +381,8 @@ export default function App() {
   const handleResetWorkflow = () => {
     setCurrentStep(1);
     setAuditReport(null);
+    setOriginalReport(null);
+    setOriginalMeta(undefined);
     setErrorMessage(null);
   };
 
@@ -440,7 +447,7 @@ export default function App() {
               onUpdateUserInfo={handleUpdateUserInfo}
             />
           ) : auditSubView === "dashboard" ? (
-            <Dashboard recentAudits={auditRecords} />
+            <Dashboard recentAudits={auditRecords} currentUser={currentUser} />
           ) : auditSubView === "registry" ? (
             <AuditRegistry
               records={auditRecords}
@@ -469,6 +476,9 @@ export default function App() {
                 isAnalyzing={isAnalyzing}
                 currentUser={currentUser}
                 users={users}
+                auditReport={auditReport}
+                setAuditReport={setAuditReport}
+                originalReport={originalReport}
               />
 
               {currentStep === 4 && (

@@ -1,6 +1,6 @@
 export type UserRole = "admin" | "auditor" | "manager" | "supervisor" | "operator" | "inspector";
 
-export type ApprovalStatus = "PENDING_APPROVAL" | "APPROVED" | "REVISION_REQUESTED" | "FINALIZED";
+export type ApprovalStatus = "PENDING_APPROVAL" | "APPROVED" | "APPROVED_WITH_COMMENTS" | "REVISION_REQUESTED" | "FINALIZED";
 
 export interface ApprovalHistoryItem {
   timestamp: string;

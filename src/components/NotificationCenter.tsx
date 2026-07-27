@@ -41,7 +41,9 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     return true;
   });
 
-  const unreadCount = userNotifications.filter((n) => !n.read).length;
+  // Only show unread / active (unprocessed) notifications in the list
+  const activeNotifications = userNotifications.filter((n) => !n.read);
+  const unreadCount = activeNotifications.length;
 
   const getNotifIcon = (type: AppNotification["type"]) => {
     switch (type) {

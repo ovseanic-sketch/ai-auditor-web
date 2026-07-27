@@ -30,6 +30,11 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
 }) => {
   const currentStatus: ApprovalStatus = record.approvalStatus || "PENDING_APPROVAL";
 
+  // State for Manager "Approve with Comments"
+  const [showApproveWithCommentsForm, setShowApproveWithCommentsForm] = useState(false);
+  const [approveCommentText, setApproveCommentText] = useState("");
+  const [approveCommentError, setApproveCommentError] = useState<string | null>(null);
+
   // State for Manager "Send for Revision"
   const [showManagerCommentForm, setShowManagerCommentForm] = useState(false);
   const [managerCommentText, setManagerCommentText] = useState("");
@@ -46,7 +51,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
   const isAuditorOrAdmin =
     currentUser?.role === "auditor" || currentUser?.role === "inspector" || currentUser?.role === "admin";
 
-  // 1. MANAGER APPROVES AUDIT
+  // 1. MANAGER APPROVES AUDIT WITHOUT COMMENTS
   const handleManagerApprove = () => {
     const timestamp = new Date().toLocaleString("ru-RU", {
       day: "2-digit",
@@ -62,7 +67,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
         timestamp,
         user: currentUser?.name || record.manager || "Руководитель",
         role: "Руководитель",
-        action: "Утвердил результаты Акта оценки ОКК",
+        action: "Утвердил результаты Акта оценки ОКК (без замечаний)",
       },
     ];
 
@@ -87,6 +92,61 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
       type: "AUDIT_APPROVED",
       emailSubject: ` [ОКК] Акт ${record.id} утвержден руководителем`,
       emailBody: `Здравствуйте, ${record.inspector}!\n\nРуководитель ${currentUser?.name || record.manager} полностью утвердил результаты проведенной вами проверки ${record.id}.\nОкончательная оценка BPV (${record.bpvScore}%) зафиксирована в реестре и дэшбордах.`,
+    });
+
+    if (onNotificationSent) onNotificationSent();
+  };
+
+  // 2. MANAGER APPROVES AUDIT WITH COMMENTS
+  const handleManagerApproveWithComments = () => {
+    if (!approveCommentText.trim()) {
+      setApproveCommentError("Пожалуйста, обязательно напишите ваши замечания при утверждении.");
+      return;
+    }
+
+    setApproveCommentError(null);
+    const timestamp = new Date().toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    const updatedHistory = [
+      ...(record.approvalHistory || []),
+      {
+        timestamp,
+        user: currentUser?.name || record.manager || "Руководитель",
+        role: "Руководитель",
+        action: "Утвердил Акт оценки ОКК с замечаниями",
+        comment: approveCommentText.trim(),
+      },
+    ];
+
+    const updatedRecord: AuditRecord = {
+      ...record,
+      approvalStatus: "APPROVED_WITH_COMMENTS",
+      approvedAt: timestamp,
+      approvedBy: currentUser?.name || record.manager || "Руководитель",
+      managerComment: approveCommentText.trim(),
+      approvalHistory: updatedHistory,
+    };
+
+    onUpdateRecord(updatedRecord);
+    setShowApproveWithCommentsForm(false);
+
+    // Notify Auditor via System + E-mail
+    createNotification({
+      recipientName: record.inspector || "Аудитор ОКК",
+      recipientRole: "auditor",
+      recipientEmail: "auditor@company.com",
+      title: `Акт ${record.id} утвержден руководителем с замечаниями`,
+      message: `Руководитель ${currentUser?.name || record.manager} утвердил Акт ${record.id} с замечанием: «${approveCommentText.trim()}»`,
+      auditId: record.id,
+      type: "AUDIT_APPROVED",
+      emailSubject: ` [ОКК] Акт ${record.id} утвержден с замечаниями`,
+      emailBody: `Здравствуйте, ${record.inspector}!\n\nРуководитель ${currentUser?.name || record.manager} утвердил Акт ${record.id} с замечанием:\n«${approveCommentText.trim()}».\n\nЗамечания сохранены в истории согласования.`,
     });
 
     if (onNotificationSent) onNotificationSent();
@@ -213,6 +273,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
             {currentStatus === "APPROVED" && <CheckCircle className="w-5 h-5 text-emerald-400" />}
+            {currentStatus === "APPROVED_WITH_COMMENTS" && <MessageSquare className="w-5 h-5 text-amber-400" />}
             {currentStatus === "PENDING_APPROVAL" && <Clock className="w-5 h-5 text-amber-400" />}
             {currentStatus === "REVISION_REQUESTED" && <RotateCcw className="w-5 h-5 text-amber-500 animate-spin-slow" />}
             {currentStatus === "FINALIZED" && <FileCheck className="w-5 h-5 text-blue-400" />}
@@ -222,7 +283,12 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
               <span className="text-xs font-semibold text-slate-400">Статус согласования:</span>
               {currentStatus === "APPROVED" && (
                 <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                  <CheckCircle className="w-3.5 h-3.5" /> Утвержден
+                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Утвержден
+                </span>
+              )}
+              {currentStatus === "APPROVED_WITH_COMMENTS" && (
+                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <MessageSquare className="w-3.5 h-3.5 text-amber-400" /> Утвержден с замечаниями
                 </span>
               )}
               {currentStatus === "PENDING_APPROVAL" && (
@@ -262,25 +328,76 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
             <span>Панель решения Руководителя ({currentUser?.name || record.manager || "Руководитель"})</span>
           </div>
 
-          {!showManagerCommentForm ? (
+          {!showManagerCommentForm && !showApproveWithCommentsForm ? (
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={handleManagerApprove}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-lg shadow-emerald-600/20 flex items-center gap-2 cursor-pointer"
               >
                 <CheckCircle className="w-4 h-4" />
-                <span>Утвердить результаты</span>
+                <span>Утвердить без замечаний</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setShowManagerCommentForm(true)}
-                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition-all shadow-lg shadow-amber-600/20 flex items-center gap-2 cursor-pointer"
+                onClick={() => {
+                  setShowApproveWithCommentsForm(true);
+                  setShowManagerCommentForm(false);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition-all shadow-lg shadow-amber-600/20 flex items-center gap-2 cursor-pointer"
               >
-                <RotateCcw className="w-4 h-4" />
+                <MessageSquare className="w-4 h-4" />
+                <span>Утвердить с замечаниями</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowManagerCommentForm(true);
+                  setShowApproveWithCommentsForm(false);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs transition-all border border-amber-500/30 flex items-center gap-2 cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4 text-amber-400" />
                 <span>Подать протест / Отправить на пересмотр</span>
               </button>
+            </div>
+          ) : showApproveWithCommentsForm ? (
+            <div className="space-y-3 animate-fadeIn">
+              <label className="text-xs text-amber-300 font-bold block">
+                Укажите ваши замечания или рекомендации для аудитора/персонала при утверждении: <span className="text-red-400">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={approveCommentText}
+                onChange={(e) => setApproveCommentText(e.target.value)}
+                placeholder="Пример: Акт утверждается. Однако обратите внимание сотрудника на более наглядную демонстрацию сопутствующих аксессуаров..."
+                className="w-full bg-slate-950 border border-amber-500/60 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-amber-400"
+              />
+              {approveCommentError && (
+                <div className="text-xs text-red-400 font-medium flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>{approveCommentError}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleManagerApproveWithComments}
+                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition-all shadow-md shadow-amber-600/20 flex items-center gap-2 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Подтвердить утверждение с замечаниями</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowApproveWithCommentsForm(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold cursor-pointer"
+                >
+                  Отмена
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-3 animate-fadeIn">
@@ -317,6 +434,68 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
                   Отмена
                 </button>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Info banner for Auditor when status is PENDING_APPROVAL */}
+      {currentStatus === "PENDING_APPROVAL" && !isManagerOrAdmin && (
+        <div className="bg-slate-900/80 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-200 space-y-1">
+          <div className="flex items-center gap-2 font-bold text-amber-300">
+            <Clock className="w-4 h-4 text-amber-400" />
+            <span>Акт находится на согласовании у руководителя ({record.manager || "Петров В.В."})</span>
+          </div>
+          <p className="text-slate-400">
+            Акт передан руководителю для утверждения или возможного запроса пересмотра. Вносить изменения на этом этапе не требуется.
+          </p>
+        </div>
+      )}
+
+      {/* Info banner for Manager when status is REVISION_REQUESTED */}
+      {currentStatus === "REVISION_REQUESTED" && !isAuditorOrAdmin && (
+        <div className="bg-amber-950/20 border border-amber-500/30 rounded-xl p-4 text-xs text-amber-200 space-y-2">
+          <div className="flex items-center gap-2 font-bold text-amber-300">
+            <Clock className="w-4 h-4 text-amber-400" />
+            <span>Акт находится на пересмотре у проверяющего ({record.inspector})</span>
+          </div>
+          {record.managerComment && (
+            <p className="text-slate-300">
+              Вы направили замечания аудитору: <strong className="italic">«{record.managerComment}»</strong>.
+              Ожидайте решение и комментарии аудитора по результатам повторного анализа.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Info banner when status is APPROVED */}
+      {currentStatus === "APPROVED" && (
+        <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-4 text-xs text-emerald-200 space-y-1">
+          <div className="flex items-center gap-2 font-bold text-emerald-300">
+            <CheckCircle className="w-4 h-4 text-emerald-400" />
+            <span>Результаты Акта ОКК полностью утверждены</span>
+          </div>
+          <p className="text-slate-400">
+            {record.approvedBy ? `Утвердил: ${record.approvedBy}` : "Руководитель утвердил Акт"}{" "}
+            {record.approvedAt ? `(${record.approvedAt})` : ""}. Окончательная оценка BPV зафиксирована.
+          </p>
+        </div>
+      )}
+
+      {/* Info banner when status is APPROVED_WITH_COMMENTS */}
+      {currentStatus === "APPROVED_WITH_COMMENTS" && (
+        <div className="bg-amber-950/20 border border-amber-500/40 rounded-xl p-4 text-xs text-amber-200 space-y-2">
+          <div className="flex items-center gap-2 font-bold text-amber-300">
+            <MessageSquare className="w-4 h-4 text-amber-400" />
+            <span>Акт ОКК утвержден руководителем с замечаниями</span>
+          </div>
+          <p className="text-slate-300">
+            {record.approvedBy ? `Утвердил: ${record.approvedBy}` : "Руководитель утвердил Акт"}{" "}
+            {record.approvedAt ? `(${record.approvedAt})` : ""}.
+          </p>
+          {record.managerComment && (
+            <div className="bg-slate-950/80 border border-amber-500/30 rounded-lg p-2.5 text-amber-200 italic">
+              Замечания руководителя: «{record.managerComment}»
             </div>
           )}
         </div>
@@ -418,7 +597,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
         <div className="space-y-3 pt-2">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
             <History className="w-4 h-4 text-blue-400" />
-            <span>История согласования и комментарии ({record.approvalHistory.length})</span>
+            <span>Цепочка действий и история согласования ({record.approvalHistory.length})</span>
           </div>
 
           <div className="space-y-2 max-h-48 overflow-y-auto pr-1 divide-y divide-slate-800/60">

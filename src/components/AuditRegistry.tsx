@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { loadDictionaries } from "../utils/dictionaryStore";
 import { AuditRecord, UserAccount, ApprovalStatus } from "../types";
+import { isAuditBelongsToManager } from "../utils/brandAccess";
 import { ApprovalWorkflowPanel } from "./ApprovalWorkflowPanel";
 import {
   Folder,
@@ -36,6 +37,7 @@ import {
   CheckCircle,
   RotateCcw,
   FileCheck,
+  MessageSquare,
 } from "lucide-react";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
 import { AuditReportView } from "./AuditReportView";
@@ -52,6 +54,8 @@ export function buildFullReportMarkdown(item: AuditRecord): string {
     historyMarkdown = `\n\n## 10. ИСТОРИЯ СОГЛАСОВАНИЯ, ПРОТЕСТОВ И РЕШЕНИЙ АУДИТОРА\n- **Текущий статус Акта:** ${
       item.approvalStatus === "APPROVED"
         ? "Утвержден руководителем"
+        : item.approvalStatus === "APPROVED_WITH_COMMENTS"
+        ? "Утвержден руководителем с замечаниями"
         : item.approvalStatus === "REVISION_REQUESTED"
         ? "Подан протест / На пересмотре у проверяющего"
         : item.approvalStatus === "FINALIZED"
@@ -144,12 +148,30 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     checkType: "1. Контрольная закупка",
     employeeCode: "Sorbalov Dorina",
     inspector: "Аудитор №17",
+    manager: "Петров В.В.",
     bpvScore: 100,
     cashScore: 100,
     speechScore: 98,
     salesDriveScore: 100,
     stopFactors: 0,
+    approvalStatus: "APPROVED",
+    approvedAt: "13.06.2026, 16:30",
+    approvedBy: "Петров В.В. (Руководитель)",
     reportSummary: "Идеальное выполнение стандартов BPV, безупречный диалог с клиентом и эффективный Cross-sell сопутствующих товаров.",
+    approvalHistory: [
+      {
+        timestamp: "13.06.2026, 14:15",
+        user: "Аудитор №17",
+        role: "Проверяющий",
+        action: "Сформировал Акт оценки ОКК и направил на согласование руководителю",
+      },
+      {
+        timestamp: "13.06.2026, 16:30",
+        user: "Петров В.В.",
+        role: "Руководитель",
+        action: "Утвердил результаты Акта оценки ОКК (без замечаний)",
+      },
+    ],
   },
   {
     id: "AUD-2026-002",
@@ -161,12 +183,32 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     checkType: "1. Контрольная закупка",
     employeeCode: "Sau Daniel",
     inspector: "Инкогнито (Аудитор №03)",
+    manager: "Петров В.В.",
     bpvScore: 88.5,
     cashScore: 100,
     speechScore: 85,
     salesDriveScore: 25.0,
     stopFactors: 0,
+    approvalStatus: "APPROVED_WITH_COMMENTS",
+    approvedAt: "22.07.2026, 18:10",
+    approvedBy: "Петров В.В. (Руководитель)",
+    managerComment: "Результаты утверждены. Руководителю филиала провести инструктаж с консультантом по более активной презентации сопутствующих аксессуаров до пробития чека.",
     reportSummary: "Высокое качество презентации и работы с сомнениями. Пропуск инициативного Cross-sell аксессуаров до оплаты.",
+    approvalHistory: [
+      {
+        timestamp: "22.07.2026, 15:40",
+        user: "Инкогнито (Аудитор №03)",
+        role: "Проверяющий",
+        action: "Сформировал Акт оценки ОКК и направил на согласование руководителю",
+      },
+      {
+        timestamp: "22.07.2026, 18:10",
+        user: "Петров В.В.",
+        role: "Руководитель",
+        action: "Утвердил Акт оценки ОКК с замечаниями",
+        comment: "Результаты утверждены. Руководителю филиала провести инструктаж с консультантом по более активной презентации сопутствующих аксессуаров до пробития чека.",
+      },
+    ],
   },
   {
     id: "AUD-2026-003",
@@ -178,12 +220,30 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     checkType: "1. Контрольная закупка",
     employeeCode: "Anton Cristina",
     inspector: "Аудитор №09",
+    manager: "Петров В.В.",
     bpvScore: 91.5,
     cashScore: 100,
     speechScore: 92,
     salesDriveScore: 100,
     stopFactors: 0,
+    approvalStatus: "APPROVED",
+    approvedAt: "08.06.2026, 17:00",
+    approvedBy: "Петров В.В. (Руководитель)",
     reportSummary: "Отличный диалоговый баланс, подробная презентация характеристик товара и предложение сервисных пакетов.",
+    approvalHistory: [
+      {
+        timestamp: "08.06.2026, 12:00",
+        user: "Аудитор №09",
+        role: "Проверяющий",
+        action: "Сформировал Акт оценки ОКК и направил на согласование руководителю",
+      },
+      {
+        timestamp: "08.06.2026, 17:00",
+        user: "Петров В.В.",
+        role: "Руководитель",
+        action: "Утвердил результаты Акта оценки ОКК (без замечаний)",
+      },
+    ],
   },
   {
     id: "AUD-2026-004",
@@ -195,12 +255,38 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     checkType: "2. Mystery shopper (без покупки)",
     employeeCode: "Алексей С.",
     inspector: "MS-007",
+    manager: "Иванов И.И.",
     bpvScore: 95.0,
     cashScore: 100,
     speechScore: 96,
     salesDriveScore: 80.0,
     stopFactors: 0,
+    approvalStatus: "FINALIZED",
     reportSummary: "Экспертная консультация без покупки. Сотрудник отлично отработал воронку вопросов и выявил скрытые задачи.",
+    managerComment: "Подал протест: Прошу пересмотреть балл за Sales Drive, так как консультант активно предлагал дополнительную гарантию.",
+    auditorRevisionComment: "Проведена повторная проверка тайминга аудиозаписи. Балл за Sales Drive скорректирован с 70% на 80%.",
+    approvalHistory: [
+      {
+        timestamp: "23.07.2026, 10:00",
+        user: "MS-007",
+        role: "Проверяющий",
+        action: "Сформировал Акт оценки ОКК и направил на согласование руководителю",
+      },
+      {
+        timestamp: "23.07.2026, 11:30",
+        user: "Иванов И.И.",
+        role: "Руководитель",
+        action: "Подал протест / отправил Акт на пересмотр",
+        comment: "Подал протест: Прошу пересмотреть балл за Sales Drive, так как консультант активно предлагал дополнительную гарантию.",
+      },
+      {
+        timestamp: "23.07.2026, 14:20",
+        user: "MS-007",
+        role: "Проверяющий",
+        action: "Скоректировал балл BPV с 90% на 95%",
+        comment: "Проведена повторная проверка тайминга аудиозаписи. Балл за Sales Drive скорректирован с 70% на 80%.",
+      },
+    ],
   },
   {
     id: "AUD-2026-005",
@@ -212,12 +298,30 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     checkType: "2. Mystery shopper (без покупки)",
     employeeCode: "Петров Михаил",
     inspector: "MS-012",
+    manager: "Иванов И.И.",
     bpvScore: 78.0,
     cashScore: 100,
     speechScore: 74,
     salesDriveScore: 50.0,
     stopFactors: 1,
+    approvalStatus: "REVISION_REQUESTED",
+    managerComment: "Подаю протест: Не согласен со стоп-фактором. Прошу переслушать фрагмент диалога 04:12.",
     reportSummary: "Зафиксировано использование закрытых вопросов и отсутствие выявления потребностей в начале разговора.",
+    approvalHistory: [
+      {
+        timestamp: "19.07.2026, 14:00",
+        user: "MS-012",
+        role: "Проверяющий",
+        action: "Сформировал Акт оценки ОКК и направил на согласование руководителю",
+      },
+      {
+        timestamp: "19.07.2026, 16:45",
+        user: "Иванов И.И.",
+        role: "Руководитель",
+        action: "Подал протест / отправил Акт на пересмотр",
+        comment: "Подаю протест: Не согласен со стоп-фактором. Прошу переслушать фрагмент диалога 04:12.",
+      },
+    ],
   },
   {
     id: "AUD-2026-006",
@@ -229,12 +333,30 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     checkType: "1. Контрольная закупка",
     employeeCode: "Cojocaru Elena",
     inspector: "Аудитор №05",
+    manager: "Петров В.В.",
     bpvScore: 92.0,
     cashScore: 100,
     speechScore: 90,
     salesDriveScore: 85.0,
     stopFactors: 0,
+    approvalStatus: "APPROVED",
+    approvedAt: "15.07.2026, 18:00",
+    approvedBy: "Петров В.В.",
     reportSummary: "Высокая культура обслуживания, грамотная речевая аналитика и соблюдение порядка заполнения документов.",
+    approvalHistory: [
+      {
+        timestamp: "15.07.2026, 11:20",
+        user: "Аудитор №05",
+        role: "Проверяющий",
+        action: "Сформировал Акт оценки ОКК и направил на согласование руководителю",
+      },
+      {
+        timestamp: "15.07.2026, 18:00",
+        user: "Петров В.В.",
+        role: "Руководитель",
+        action: "Утвердил результаты Акта оценки ОКК (без замечаний)",
+      },
+    ],
   },
   {
     id: "AUD-2026-013",
@@ -254,6 +376,14 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     stopFactors: 0,
     approvalStatus: "PENDING_APPROVAL",
     reportSummary: "Акт оценки ОКК направлен на согласование руководителю. Высокое качество соблюдения сервисного стандарта BPV (93.0%). На основе анализа аудиозаписи консультации зафиксировано строгое соблюдение речевых стандартов и воронки вопросов.",
+    approvalHistory: [
+      {
+        timestamp: "25.07.2026, 09:30",
+        user: "Инспектор ОКК",
+        role: "Проверяющий",
+        action: "Сформировал Акт оценки ОКК и направил на согласование руководителю (Петров В.В.)",
+      },
+    ],
   },
 ];
 
@@ -278,6 +408,10 @@ export function AuditRegistry({
 }: AuditRegistryProps) {
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>("ALL");
+  const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>("ALL");
+  const [selectedManagerFilter, setSelectedManagerFilter] = useState<string>("ALL");
+  const [selectedCityFilter, setSelectedCityFilter] = useState<string>("ALL");
   const [selectedCheckType, setSelectedCheckType] = useState<string>("ALL");
   const [selectedApprovalFilter, setSelectedApprovalFilter] = useState<string>("ALL");
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>("ALL"); // "ALL" | "TODAY" | "THIS_MONTH" | "CUSTOM"
@@ -288,9 +422,11 @@ export function AuditRegistry({
 
   // Modal for Viewing Full Audit Report
   const [viewingRecord, setViewingRecord] = useState<AuditRecord | null>(null);
+  const [showFullReportInModal, setShowFullReportInModal] = useState<boolean>(false);
 
   const handleCloseModal = () => {
     setViewingRecord(null);
+    setShowFullReportInModal(false);
     if (onClearSelectedModalId) {
       onClearSelectedModalId();
     }
@@ -496,10 +632,15 @@ export function AuditRegistry({
     reportSummary: "Новая проверка внесена в реестр.",
   });
 
-  // Available unique groups for dropdowns
-  const existingGroups = Array.from(
-    new Set(records.map((r) => r.group || "Без группы"))
-  );
+  // Accessible records according to manager's brand isolation
+  const accessibleRecords = records.filter((r) => isAuditBelongsToManager(r, currentUser));
+
+  // Available unique values for dropdowns
+  const uniqueBrands = Array.from(new Set(accessibleRecords.map((r) => r.brand).filter(Boolean)));
+  const uniqueRegions = Array.from(new Set(accessibleRecords.map((r) => r.group || (r as any).region).filter(Boolean)));
+  const uniqueManagers = Array.from(new Set(accessibleRecords.map((r) => r.manager).filter(Boolean)));
+  const uniqueCities = Array.from(new Set(accessibleRecords.map((r) => r.city).filter(Boolean)));
+  const existingGroups = Array.from(new Set(accessibleRecords.map((r) => r.group || "Без группы")));
 
   // Date parser helper
   const parseDateString = (dateStr: string): Date | null => {
@@ -531,13 +672,20 @@ export function AuditRegistry({
     return isNaN(d.getTime()) ? null : d;
   };
 
-  // Filter records by search, checkType, and date
-  const filteredRecords = records.filter((rec) => {
+  // Filter records by search, brand, region, manager, city, checkType, and date
+  const filteredRecords = accessibleRecords.filter((rec) => {
+    const matchesBrand = selectedBrandFilter === "ALL" || rec.brand === selectedBrandFilter;
+    const matchesRegion = selectedRegionFilter === "ALL" || (rec.group || (rec as any).region) === selectedRegionFilter;
+    const matchesManager = selectedManagerFilter === "ALL" || rec.manager === selectedManagerFilter;
+    const matchesCity = selectedCityFilter === "ALL" || rec.city === selectedCityFilter;
+
     const matchesSearch =
       rec.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       rec.employeeCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
       rec.branch.toLowerCase().includes(searchQuery.toLowerCase()) ||
       rec.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (rec.manager && rec.manager.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (rec.city && rec.city.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (rec.date && rec.date.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (rec.group && rec.group.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -595,7 +743,7 @@ export function AuditRegistry({
       matchesApproval = recStatus === selectedApprovalFilter;
     }
 
-    return matchesSearch && matchesType && matchesDate && matchesApproval;
+    return matchesBrand && matchesRegion && matchesManager && matchesCity && matchesSearch && matchesType && matchesDate && matchesApproval;
   });
 
   // Group records by chosen key
@@ -823,6 +971,54 @@ export function AuditRegistry({
             />
           </div>
 
+          {/* Brand Filter */}
+          <select
+            value={selectedBrandFilter}
+            onChange={(e) => setSelectedBrandFilter(e.target.value)}
+            className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+          >
+            <option value="ALL">Все бренды</option>
+            {uniqueBrands.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+
+          {/* Region Filter */}
+          <select
+            value={selectedRegionFilter}
+            onChange={(e) => setSelectedRegionFilter(e.target.value)}
+            className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+          >
+            <option value="ALL">Все регионы</option>
+            {uniqueRegions.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+
+          {/* Manager Filter */}
+          <select
+            value={selectedManagerFilter}
+            onChange={(e) => setSelectedManagerFilter(e.target.value)}
+            className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+          >
+            <option value="ALL">Все руководители</option>
+            {uniqueManagers.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+
+          {/* City Filter */}
+          <select
+            value={selectedCityFilter}
+            onChange={(e) => setSelectedCityFilter(e.target.value)}
+            className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+          >
+            <option value="ALL">Все города</option>
+            {uniqueCities.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
           {/* Approval Status Filter */}
           <div className="flex items-center gap-2">
             <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -833,8 +1029,9 @@ export function AuditRegistry({
             >
               <option value="ALL">Все статусы согласования</option>
               <option value="PENDING_APPROVAL">🟡 На согласовании</option>
-              <option value="REVISION_REQUESTED">🟠 На пересмотре</option>
+              <option value="APPROVED_WITH_COMMENTS">🟠 Утвержден с замечаниями</option>
               <option value="APPROVED">🟢 Утверждены</option>
+              <option value="REVISION_REQUESTED">🔴 На пересмотре</option>
               <option value="FINALIZED">🔵 Финализированы</option>
             </select>
           </div>
@@ -1116,24 +1313,74 @@ export function AuditRegistry({
 
                               <td className={cellPad}>
                                 {(!item.approvalStatus || item.approvalStatus === "PENDING_APPROVAL") && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                                    <Clock className="w-3 h-3" /> На согласовании
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setViewingRecord(item);
+                                    }}
+                                    title="Нажмите, чтобы посмотреть цепочку действий и историю согласования"
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 transition-all cursor-pointer shadow-xs"
+                                  >
+                                    <Clock className="w-3 h-3 text-amber-400" />
+                                    <span>На согласовании</span>
+                                  </button>
+                                )}
+                                {item.approvalStatus === "APPROVED_WITH_COMMENTS" && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setViewingRecord(item);
+                                    }}
+                                    title="Нажмите, чтобы посмотреть цепочку действий, замечания и историю согласования"
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 hover:border-amber-500/60 transition-all cursor-pointer shadow-xs"
+                                  >
+                                    <MessageSquare className="w-3 h-3 text-amber-400" />
+                                    <span>Утвержден с замечаниями</span>
+                                  </button>
                                 )}
                                 {item.approvalStatus === "APPROVED" && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
-                                    <CheckCircle className="w-3 h-3" /> Утвержден
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setViewingRecord(item);
+                                    }}
+                                    title="Нажмите, чтобы посмотреть цепочку действий и историю согласования"
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-all cursor-pointer shadow-xs"
+                                  >
+                                    <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                    <span>Утвержден</span>
+                                  </button>
                                 )}
                                 {item.approvalStatus === "REVISION_REQUESTED" && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                                    <RotateCcw className="w-3 h-3" /> На пересмотре
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setViewingRecord(item);
+                                    }}
+                                    title="Нажмите, чтобы посмотреть цепочку действий и замечания руководителя"
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-red-500/30 hover:border-red-500/60 transition-all cursor-pointer shadow-xs"
+                                  >
+                                    <RotateCcw className="w-3 h-3 text-red-400" />
+                                    <span>На пересмотре</span>
+                                  </button>
                                 )}
                                 {item.approvalStatus === "FINALIZED" && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-500/10 text-blue-300 border border-blue-500/30">
-                                    <FileCheck className="w-3 h-3" /> Финализирован
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setViewingRecord(item);
+                                    }}
+                                    title="Нажмите, чтобы посмотреть цепочку действий и финальное решение"
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-blue-500/10 text-blue-300 border border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all cursor-pointer shadow-xs"
+                                  >
+                                    <FileCheck className="w-3 h-3 text-blue-400" />
+                                    <span>Финализирован</span>
+                                  </button>
                                 )}
                               </td>
 
@@ -1705,7 +1952,7 @@ export function AuditRegistry({
 
             {/* Modal Body */}
             <div className="p-6 overflow-y-auto space-y-6">
-              {/* Approval Process Panel */}
+              {/* Approval Process Panel (Process fields, comments, and history) */}
               <ApprovalWorkflowPanel
                 record={viewingRecord}
                 currentUser={currentUser}
@@ -1713,36 +1960,55 @@ export function AuditRegistry({
                 onNotificationSent={onNotificationCreated}
               />
 
-              <AuditReportView
-                report={viewingRecord.fullReportText || buildFullReportMarkdown(viewingRecord)}
-                isAnalyzing={false}
-                auditData={{
-                  id: viewingRecord.id,
-                  date: viewingRecord.date,
-                  brand: viewingRecord.brand,
-                  branch: viewingRecord.branch,
-                  city: viewingRecord.city,
-                  employeeCode: viewingRecord.employeeCode,
-                  inspector: viewingRecord.inspector,
-                  manager: viewingRecord.manager,
-                  checkType: viewingRecord.checkType,
-                  bpvScore: viewingRecord.bpvScore,
-                  speechScore: viewingRecord.speechScore,
-                  salesDriveScore: viewingRecord.salesDriveScore,
-                  approvalStatus: viewingRecord.approvalStatus,
-                  approvalHistory: viewingRecord.approvalHistory,
-                  managerComment: viewingRecord.managerComment,
-                  auditorRevisionComment: viewingRecord.auditorRevisionComment,
-                  approvedAt: viewingRecord.approvedAt,
-                  approvedBy: viewingRecord.approvedBy,
-                  category: "Консультация",
-                  target: "Оценка BPV",
-                  result: "Завершено",
-                  comment: "",
-                  standards: "",
-                }}
-                onReset={handleCloseModal}
-              />
+              {/* Optional Report Toggle */}
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setShowFullReportInModal(!showFullReportInModal)}
+                  className="text-xs font-semibold text-slate-400 hover:text-slate-200 flex items-center gap-2 py-2 px-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-all cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5 text-blue-400" />
+                  <span>
+                    {showFullReportInModal
+                      ? "Скрыть детальный текстовый отчет ОКК"
+                      : "Показать детальный текстовый отчет ОКК"}
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showFullReportInModal ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+
+              {showFullReportInModal && (
+                <AuditReportView
+                  report={viewingRecord.fullReportText || buildFullReportMarkdown(viewingRecord)}
+                  isAnalyzing={false}
+                  auditData={{
+                    id: viewingRecord.id,
+                    date: viewingRecord.date,
+                    brand: viewingRecord.brand,
+                    branch: viewingRecord.branch,
+                    city: viewingRecord.city,
+                    employeeCode: viewingRecord.employeeCode,
+                    inspector: viewingRecord.inspector,
+                    manager: viewingRecord.manager,
+                    checkType: viewingRecord.checkType,
+                    bpvScore: viewingRecord.bpvScore,
+                    speechScore: viewingRecord.speechScore,
+                    salesDriveScore: viewingRecord.salesDriveScore,
+                    approvalStatus: viewingRecord.approvalStatus,
+                    approvalHistory: viewingRecord.approvalHistory,
+                    managerComment: viewingRecord.managerComment,
+                    auditorRevisionComment: viewingRecord.auditorRevisionComment,
+                    approvedAt: viewingRecord.approvedAt,
+                    approvedBy: viewingRecord.approvedBy,
+                    category: "Консультация",
+                    target: "Оценка BPV",
+                    result: "Завершено",
+                    comment: "",
+                    standards: "",
+                  }}
+                  onReset={handleCloseModal}
+                />
+              )}
             </div>
 
             {/* Modal Footer */}

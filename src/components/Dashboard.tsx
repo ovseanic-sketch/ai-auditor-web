@@ -37,29 +37,9 @@ import {
   ShieldCheck,
   FolderTree,
 } from "lucide-react";
-import { AuditFormData } from "../types";
+import { AuditFormData, UserAccount, AuditRecord } from "../types";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
-
-export interface AuditRecord {
-  id: string;
-  date: string;
-  brand: string;
-  branch: string;
-  city: string;
-  checkType: "1. Контрольная закупка" | "2. Mystery shopper (без покупки)" | string;
-  employeeCode: string;
-  inspector: string;
-  group?: string;
-  bpvScore: number; // e.g. 91.5
-  cashScore?: number;
-  speechScore: number; // e.g. 92.0
-  salesDriveScore: number; // e.g. 85.0
-  stopFactors: number;
-  reportSummary: string;
-  fullReportText?: string;
-  audioFileName?: string;
-  audioUrl?: string;
-}
+import { isAuditBelongsToManager } from "../utils/brandAccess";
 
 // Initial realistic dataset for the executive OKK dashboard
 export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
@@ -169,11 +149,15 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
 
 interface DashboardProps {
   recentAudits?: AuditRecord[];
+  currentUser?: UserAccount | null;
   onSelectAuditForView?: (audit: AuditRecord) => void;
 }
 
-export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForView }: DashboardProps) {
+export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSelectAuditForView }: DashboardProps) {
   const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>("ALL");
+  const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>("ALL");
+  const [selectedManagerFilter, setSelectedManagerFilter] = useState<string>("ALL");
+  const [selectedCityFilter, setSelectedCityFilter] = useState<string>("ALL");
   const [selectedCheckTypeFilter, setSelectedCheckTypeFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
@@ -187,9 +171,6 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
   const [speechFilter, setSpeechFilter] = useState<string>("ALL"); // "ALL" | "PASS" | "FAIL"
   const [salesDriveFilter, setSalesDriveFilter] = useState<string>("ALL"); // "ALL" | "PASS" | "FAIL"
   const [stopFactorsFilter, setStopFactorsFilter] = useState<string>("ALL"); // "ALL" | "NONE" | "HAS_STOP"
-
-  // Grouping
-  const [groupBy, setGroupBy] = useState<"none" | "group" | "brand" | "checkType" | "city" | "date" | "employee" | "inspector">("group");
 
   // Date parser helper
   const parseDateString = (dateStr: string): Date | null => {
@@ -221,12 +202,21 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
     return isNaN(d.getTime()) ? null : d;
   };
 
-  // Get unique brands
-  const uniqueBrands = Array.from(new Set(recentAudits.map((a) => a.brand).filter(Boolean)));
+  // Base user-accessible audits (If user is a manager, restrict strictly to their brand)
+  const userAccessibleAudits = recentAudits.filter((a) => isAuditBelongsToManager(a, currentUser));
+
+  // Get unique filter values from accessible audits
+  const uniqueBrands = Array.from(new Set(userAccessibleAudits.map((a) => a.brand).filter(Boolean)));
+  const uniqueRegions = Array.from(new Set(userAccessibleAudits.map((a) => a.group || (a as any).region).filter(Boolean)));
+  const uniqueManagers = Array.from(new Set(userAccessibleAudits.map((a) => a.manager).filter(Boolean)));
+  const uniqueCities = Array.from(new Set(userAccessibleAudits.map((a) => a.city).filter(Boolean)));
 
   // Filtered audits list
-  const filteredAudits = recentAudits.filter((item) => {
+  const filteredAudits = userAccessibleAudits.filter((item) => {
     const matchesBrand = selectedBrandFilter === "ALL" || item.brand === selectedBrandFilter;
+    const matchesRegion = selectedRegionFilter === "ALL" || (item.group || (item as any).region) === selectedRegionFilter;
+    const matchesManager = selectedManagerFilter === "ALL" || item.manager === selectedManagerFilter;
+    const matchesCity = selectedCityFilter === "ALL" || item.city === selectedCityFilter;
     
     // Check type matching flexible
     let matchesCheckType = true;
@@ -239,6 +229,8 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
       item.inspector.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.branch.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.manager && item.manager.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (item.group && item.group.toLowerCase().includes(searchQuery.toLowerCase())) ||
       item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (item.date && item.date.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -299,7 +291,7 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
     if (stopFactorsFilter === "NONE" && item.stopFactors > 0) matchesMetrics = false;
     if (stopFactorsFilter === "HAS_STOP" && item.stopFactors === 0) matchesMetrics = false;
 
-    return matchesBrand && matchesCheckType && matchesSearch && matchesDate && matchesMetrics;
+    return matchesBrand && matchesRegion && matchesManager && matchesCity && matchesCheckType && matchesSearch && matchesDate && matchesMetrics;
   });
 
   // Calculate Average Metrics
@@ -308,28 +300,6 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
   const avgSpeech = totalAudits > 0 ? (filteredAudits.reduce((acc, curr) => acc + (curr.speechScore ?? 90), 0) / totalAudits).toFixed(1) : "0.0";
   const avgSalesDrive = totalAudits > 0 ? (filteredAudits.reduce((acc, curr) => acc + curr.salesDriveScore, 0) / totalAudits).toFixed(1) : "0.0";
   const totalStopFactors = filteredAudits.reduce((acc, curr) => acc + curr.stopFactors, 0);
-
-  // Group records by chosen key
-  const groupedData: { [key: string]: AuditRecord[] } = {};
-  if (groupBy === "none") {
-    groupedData["Все записи"] = filteredAudits;
-  } else {
-    filteredAudits.forEach((rec) => {
-      let key = "Без группы";
-      if (groupBy === "group") key = rec.group || "Основной регион";
-      if (groupBy === "brand") key = rec.brand || "Не указан";
-      if (groupBy === "checkType") key = rec.checkType || "Другое";
-      if (groupBy === "city") key = rec.city || "Не указан";
-      if (groupBy === "date") key = rec.date || "Без даты";
-      if (groupBy === "employee") key = rec.employeeCode ? `Сотрудник: ${rec.employeeCode}` : "Сотрудник не указан";
-      if (groupBy === "inspector") key = rec.inspector ? `Проверяющий: ${rec.inspector}` : "Проверяющий не указан";
-
-      if (!groupedData[key]) {
-        groupedData[key] = [];
-      }
-      groupedData[key].push(rec);
-    });
-  }
 
   // Distribution of Check Types for Donut Chart
   const fullPurchaseCount = filteredAudits.filter((a) => a.checkType.toLowerCase().includes("закупка") || a.checkType.toLowerCase().includes("1")).length;
@@ -400,7 +370,7 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
           </div>
         </div>
 
-        {/* Filter Controls Bar: Brands, Date, Metrics */}
+        {/* Filter Controls Bar: Brands, Regions, Managers, Cities, Check Types, Date, Metrics */}
         <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-400 font-semibold flex items-center gap-1">
@@ -417,6 +387,42 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
               <option value="ALL">Все бренды</option>
               {uniqueBrands.map((b) => (
                 <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+
+            {/* Region Filter */}
+            <select
+              value={selectedRegionFilter}
+              onChange={(e) => setSelectedRegionFilter(e.target.value)}
+              className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            >
+              <option value="ALL">Все регионы</option>
+              {uniqueRegions.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+
+            {/* Manager Filter */}
+            <select
+              value={selectedManagerFilter}
+              onChange={(e) => setSelectedManagerFilter(e.target.value)}
+              className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            >
+              <option value="ALL">Все руководители</option>
+              {uniqueManagers.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+
+            {/* City Filter */}
+            <select
+              value={selectedCityFilter}
+              onChange={(e) => setSelectedCityFilter(e.target.value)}
+              className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-500"
+            >
+              <option value="ALL">Все города</option>
+              {uniqueCities.map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
 
@@ -527,100 +533,6 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
               <option value="NONE">Без нарушений (0)</option>
               <option value="HAS_STOP">Есть нарушения (&gt;0)</option>
             </select>
-          </div>
-        </div>
-
-        {/* Grouping Selector */}
-        <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-              <Layers className="w-4 h-4 text-blue-400" />
-              Группировать на дашборде по:
-            </span>
-            <div className="flex flex-wrap items-center bg-slate-950 p-1 rounded-xl border border-slate-800 gap-0.5">
-              <button
-                onClick={() => setGroupBy("group")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  groupBy === "group"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Группам/Регионам
-              </button>
-              <button
-                onClick={() => setGroupBy("date")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  groupBy === "date"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Дате
-              </button>
-              <button
-                onClick={() => setGroupBy("employee")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
-                  groupBy === "employee"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Users className="w-3 h-3" />
-                Сотрудникам
-              </button>
-              <button
-                onClick={() => setGroupBy("inspector")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
-                  groupBy === "inspector"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <UserCheck className="w-3 h-3" />
-                Проверяющим
-              </button>
-              <button
-                onClick={() => setGroupBy("brand")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  groupBy === "brand"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Брендам
-              </button>
-              <button
-                onClick={() => setGroupBy("city")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  groupBy === "city"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Городам
-              </button>
-              <button
-                onClick={() => setGroupBy("checkType")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  groupBy === "checkType"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Типу проверки
-              </button>
-              <button
-                onClick={() => setGroupBy("none")}
-                className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                  groupBy === "none"
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Без группировки
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -822,123 +734,102 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, onSelectAuditForV
         </div>
       </div>
 
-      {/* Recent Audits Table grouped or continuous */}
+      {/* Recent Audits Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-4">
           <div>
             <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
               <span>Реестр проверок ОКК</span>
-              {groupBy !== "none" && (
-                <span className="text-xs bg-blue-500/10 text-blue-400 px-2.5 py-0.5 rounded-md border border-blue-500/20 font-normal">
-                  Сгруппировано по: {groupBy === "group" ? "Группам" : groupBy === "date" ? "Дате" : groupBy === "employee" ? "Сотрудникам" : groupBy === "inspector" ? "Проверяющим" : groupBy === "brand" ? "Брендам" : groupBy === "city" ? "Городам" : "Типу"}
-                </span>
-              )}
             </h3>
             <p className="text-xs text-slate-400">История зафиксированных протоколов с аналитикой показателей</p>
           </div>
-          <span className="text-xs text-slate-500">Найдено: {filteredAudits.length} из {recentAudits.length}</span>
+          <span className="text-xs text-slate-500">Найдено: {filteredAudits.length} из {userAccessibleAudits.length}</span>
         </div>
 
-        {Object.keys(groupedData).length === 0 || filteredAudits.length === 0 ? (
+        {filteredAudits.length === 0 ? (
           <div className="text-center py-10 text-slate-500 text-xs bg-slate-950/50 rounded-xl border border-slate-800">
             Нет проверок, соответствующих выбранным критериям фильтрации
           </div>
         ) : (
-          <div className="space-y-6">
-            {Object.entries(groupedData).map(([groupName, groupItems]) => (
-              <div key={groupName} className="space-y-2">
-                {groupBy !== "none" && (
-                  <div className="flex items-center gap-2 bg-slate-950 px-3 py-2 rounded-xl border border-slate-800/80">
-                    <FolderTree className="w-4 h-4 text-blue-400" />
-                    <span className="text-xs font-bold text-slate-200">{groupName}</span>
-                    <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">
-                      {groupItems.length}
-                    </span>
-                  </div>
-                )}
+          <div className="overflow-x-auto scrollbar-thin rounded-xl border border-slate-800/80">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-950 text-slate-400 uppercase font-bold tracking-wider border-b border-slate-800">
+                  <th className="py-3 px-3">Код / Дата</th>
+                  <th className="py-3 px-3">Бренд и Филиал</th>
+                  <th className="py-3 px-3">Сотрудник / Аудитор</th>
+                  <th className="py-3 px-3">Тип проверки</th>
+                  <th className="py-3 px-3 text-center">BPV Index</th>
+                  <th className="py-3 px-3 text-center">Речевой индекс</th>
+                  <th className="py-3 px-3 text-center">Sales Drive</th>
+                  <th className="py-3 px-3 text-right">Экспорт</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {filteredAudits.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="py-3 px-3 font-mono text-slate-400 whitespace-nowrap">
+                      <div className="font-semibold text-slate-200">{item.id}</div>
+                      <div className="text-[10px] text-slate-500">{item.date}</div>
+                    </td>
 
-                <div className="overflow-x-auto scrollbar-thin rounded-xl border border-slate-800/80">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-950 text-slate-400 uppercase font-bold tracking-wider border-b border-slate-800">
-                        <th className="py-3 px-3">Код / Дата</th>
-                        <th className="py-3 px-3">Бренд и Филиал</th>
-                        <th className="py-3 px-3">Сотрудник / Аудитор</th>
-                        <th className="py-3 px-3">Тип проверки</th>
-                        <th className="py-3 px-3 text-center">BPV Index</th>
-                        <th className="py-3 px-3 text-center">Речевой индекс</th>
-                        <th className="py-3 px-3 text-center">Sales Drive</th>
-                        <th className="py-3 px-3 text-right">Экспорт</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                      {groupItems.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3 px-3 font-mono text-slate-400 whitespace-nowrap">
-                            <div className="font-semibold text-slate-200">{item.id}</div>
-                            <div className="text-[10px] text-slate-500">{item.date}</div>
-                          </td>
+                    <td className="py-3 px-3">
+                      <div className="font-semibold text-white">{item.brand}</div>
+                      <div className="text-slate-400 text-[11px]">{item.branch} ({item.city})</div>
+                    </td>
 
-                          <td className="py-3 px-3">
-                            <div className="font-semibold text-white">{item.brand}</div>
-                            <div className="text-slate-400 text-[11px]">{item.branch} ({item.city})</div>
-                          </td>
+                    <td className="py-3 px-3">
+                      <div className="font-medium text-slate-200">{item.employeeCode}</div>
+                      <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                        <UserCheck className="w-3 h-3 text-blue-400" />
+                        <span>{item.inspector}</span>
+                      </div>
+                    </td>
 
-                          <td className="py-3 px-3">
-                            <div className="font-medium text-slate-200">{item.employeeCode}</div>
-                            <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
-                              <UserCheck className="w-3 h-3 text-blue-400" />
-                              <span>{item.inspector}</span>
-                            </div>
-                          </td>
+                    <td className="py-3 px-3">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                          item.checkType.toLowerCase().includes("закупка") || item.checkType.includes("1")
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                        }`}
+                      >
+                        {item.checkType.toLowerCase().includes("закупка") || item.checkType.includes("1") ? "Контрольная закупка" : "Mystery Shopper"}
+                      </span>
+                    </td>
 
-                          <td className="py-3 px-3">
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                item.checkType.toLowerCase().includes("закупка") || item.checkType.includes("1")
-                                  ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                                  : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                              }`}
-                            >
-                              {item.checkType.toLowerCase().includes("закупка") || item.checkType.includes("1") ? "Контрольная закупка" : "Mystery Shopper"}
-                            </span>
-                          </td>
+                    <td className="py-3 px-3 text-center font-bold">
+                      <span className={item.bpvScore >= 85 ? "text-emerald-400" : "text-amber-400"}>
+                        {item.bpvScore}%
+                      </span>
+                    </td>
 
-                          <td className="py-3 px-3 text-center font-bold">
-                            <span className={item.bpvScore >= 85 ? "text-emerald-400" : "text-amber-400"}>
-                              {item.bpvScore}%
-                            </span>
-                          </td>
+                    <td className="py-3 px-3 text-center font-bold">
+                      <span className={(item.speechScore ?? 90) >= 85 ? "text-emerald-400" : "text-amber-400"}>
+                        {item.speechScore ?? 90}%
+                      </span>
+                    </td>
 
-                          <td className="py-3 px-3 text-center font-bold">
-                            <span className={(item.speechScore ?? 90) >= 85 ? "text-emerald-400" : "text-amber-400"}>
-                              {item.speechScore ?? 90}%
-                            </span>
-                          </td>
+                    <td className="py-3 px-3 text-center font-bold">
+                      <span className={item.salesDriveScore >= 70 ? "text-emerald-400" : "text-amber-400"}>
+                        {item.salesDriveScore}%
+                      </span>
+                    </td>
 
-                          <td className="py-3 px-3 text-center font-bold">
-                            <span className={item.salesDriveScore >= 70 ? "text-emerald-400" : "text-amber-400"}>
-                              {item.salesDriveScore}%
-                            </span>
-                          </td>
-
-                          <td className="py-3 px-3 text-right">
-                            <button
-                              onClick={() => handleExportQuickPdf(item)}
-                              className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors"
-                              title="Скачать официальный PDF-акт"
-                            >
-                              <Download className="w-3.5 h-3.5 text-blue-400" />
-                              <span>PDF</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
+                    <td className="py-3 px-3 text-right">
+                      <button
+                        onClick={() => handleExportQuickPdf(item)}
+                        className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors"
+                        title="Скачать официальный PDF-акт"
+                      >
+                        <Download className="w-3.5 h-3.5 text-blue-400" />
+                        <span>PDF</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

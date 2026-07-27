@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import Markdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import {
   FileText,
   Copy,
@@ -224,16 +225,6 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
           </button>
 
           <button
-            id="download-report-btn"
-            onClick={handleDownloadReportMd}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all cursor-pointer"
-            title="Скачать исходный отчёт в формате Markdown (.md)"
-          >
-            <Download className="w-3.5 h-3.5 text-blue-400" />
-            <span> Markdown</span>
-          </button>
-
-          <button
             id="copy-report-btn"
             onClick={handleCopyFullReport}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all cursor-pointer"
@@ -396,7 +387,7 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
       {/* Main Formatted Markdown Content Container */}
       <div className="bg-slate-950/80 rounded-xl border border-slate-800 p-6 text-slate-200 text-xs sm:text-sm leading-relaxed overflow-x-auto font-sans">
         <div className="markdown-report-body space-y-4">
-          <Markdown>{cleanedReport}</Markdown>
+          <Markdown rehypePlugins={[rehypeRaw]}>{cleanedReport}</Markdown>
         </div>
       </div>
 
@@ -421,6 +412,11 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
             {auditData?.approvalStatus === "APPROVED" && (
               <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Утвержден ({auditData?.approvedBy || auditData?.manager || "Руководитель"})
+              </span>
+            )}
+            {auditData?.approvalStatus === "APPROVED_WITH_COMMENTS" && (
+              <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-amber-400" /> Утвержден с замечаниями ({auditData?.approvedBy || auditData?.manager || "Руководитель"})
               </span>
             )}
             {auditData?.approvalStatus === "REVISION_REQUESTED" && (
