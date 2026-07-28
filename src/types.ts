@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "auditor" | "manager" | "supervisor" | "operator" | "inspector";
+export type UserRole = "admin" | "auditor" | "manager" | "supervisor" | "operator" | "inspector" | "shopper";
 
 export type ApprovalStatus = "PENDING_APPROVAL" | "APPROVED" | "APPROVED_WITH_COMMENTS" | "REVISION_REQUESTED" | "FINALIZED";
 
@@ -20,7 +20,7 @@ export interface AppNotification {
   title: string;
   message: string;
   auditId: string;
-  type: "NEW_AUDIT_FOR_APPROVAL" | "AUDIT_APPROVED" | "REVISION_REQUESTED" | "REVISION_SUBMITTED";
+  type: "NEW_AUDIT_FOR_APPROVAL" | "AUDIT_APPROVED" | "REVISION_REQUESTED" | "REVISION_SUBMITTED" | "PASSWORD_RESET_REQUEST" | "AUDIT_DELETE_REQUEST";
   read: boolean;
   createdAt: string;
   emailSentSimulation?: {
@@ -58,6 +58,7 @@ export interface UserProfile {
 export interface AuditFormData {
   checkType?: string;
   date: string;
+  month?: string;
   time?: string;
   startTime?: string;
   endTime?: string;
@@ -65,6 +66,7 @@ export interface AuditFormData {
   branch: string;
   city: string;
   region?: string;
+  group?: string;
   manager?: string;
   employeeCode: string;
   inspector: string;
@@ -89,13 +91,19 @@ export interface PresetAuditSample {
 export interface AuditRecord {
   id: string;
   date: string;
+  month?: string;
   startTime?: string;
   endTime?: string;
   brand: string;
   branch: string;
   city: string;
+  region?: string;
   group?: string; // e.g. "Северный регион"
   manager?: string; // FIO/Name of manager
+  category?: string;
+  target?: string;
+  result?: string;
+  comment?: string;
   checkType: string;
   employeeCode: string;
   inspector: string;

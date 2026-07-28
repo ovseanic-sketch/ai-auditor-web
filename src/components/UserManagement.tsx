@@ -5,8 +5,10 @@ import {
   Users,
   UserPlus,
   Shield,
+  ShieldCheck,
   Crown,
   UserCheck,
+  ShoppingBag,
   Search,
   Lock,
   Unlock,
@@ -296,6 +298,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [resetModalUserId, setResetModalUserId] = useState<string | null>(null);
   const [newPasswordVal, setNewPasswordVal] = useState("");
 
+  // Delete User Confirmation State
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<UserAccount | null>(null);
+
   // Edit User State
   const [editUser, setEditUser] = useState<UserAccount | null>(null);
   const [editFirstName, setEditFirstName] = useState("");
@@ -320,6 +325,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [autoLogin, setAutoLogin] = useState("");
   const [autoPassword, setAutoPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
 
   // Dictionaries Admin Management State
   const [showDictionaryModal, setShowDictionaryModal] = useState(false);
@@ -489,6 +495,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   // Submit User Registration Form
   const handleRegisterUser = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isRegistering) return;
     setFormError(null);
 
     if (!regFirstName.trim() || !regLastName.trim() || !regEmail.trim()) {
@@ -506,6 +513,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       return;
     }
 
+    setIsRegistering(true);
+
     onAddUser({
       login: finalLogin,
       password: finalPassword,
@@ -521,6 +530,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
     // Close registration modal
     setShowAddModal(false);
+    setIsRegistering(false);
 
     // Show email dispatch confirmation modal
     const roleName =
@@ -528,6 +538,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         ? "Администратор"
         : regRole === "manager"
         ? "Руководитель"
+        : regRole === "shopper"
+        ? "Шоппер"
         : "Проверяющий";
 
     const emailPayload = {
@@ -551,6 +563,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         ? "Администратор"
         : user.role === "manager"
         ? "Руководитель"
+        : user.role === "shopper"
+        ? "Шоппер"
         : "Проверяющий";
 
     const emailPayload = {
@@ -602,6 +616,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
             <UserCheck className="w-3 h-3 text-cyan-400" />
             <span>Проверяющий</span>
+          </span>
+        );
+      case "shopper":
+        return (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+            <ShoppingBag className="w-3 h-3 text-emerald-400" />
+            <span>Шоппер</span>
           </span>
         );
     }
@@ -739,7 +760,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
         <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
           <span className="text-xs text-slate-400 font-medium shrink-0">Фильтр по роли:</span>
-          {["all", "admin", "manager", "inspector"].map((role) => (
+          {["all", "admin", "manager", "inspector", "shopper"].map((role) => (
             <button
               key={role}
               onClick={() => setRoleFilter(role)}
@@ -755,9 +776,22 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 ? "Администраторы"
                 : role === "manager"
                 ? "Руководители"
+                : role === "shopper"
+                ? "Шопперы"
                 : "Проверяющие"}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Data Integrity Notice Banner */}
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 flex items-center gap-3 text-xs text-slate-300 shadow-xl">
+        <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 text-emerald-400">
+          <ShieldCheck className="w-5 h-5" />
+        </div>
+        <div className="leading-relaxed">
+          <span className="font-bold text-white">Сохранность исторических данных:</span>{" "}
+          При удалении или корректировке учетных записей сотрудников вся созданная ими информация (реестр проверок, акты, PDF-отчеты и статистика на дэшбордах) <strong className="text-emerald-400 font-semibold">сохраняется в полном объеме</strong>.
         </div>
       </div>
 
@@ -970,9 +1004,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                           {user.id !== currentUser.id && (
                             <button
                               type="button"
-                              onClick={() => onDeleteUser(user.id)}
+                              onClick={() => setDeleteConfirmUser(user)}
                               className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-xl transition-all cursor-pointer"
-                              title="Удалить аккаунт"
+                              title="Удалить аккаунт (с сохранением отчетов)"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -1086,11 +1120,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none cursor-pointer font-medium"
                   >
                     <option value="">— Не указан (Офис / Без бренда) —</option>
-                    {dictionaries.brands.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
+                    {dictionaries.brands
+                      .filter((b) => !["maximum", "bomba"].includes(b.trim().toLowerCase()))
+                      .map((b) => (
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -1120,7 +1156,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   onChange={(e) => setRegRole(e.target.value as UserRole)}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none font-semibold"
                 >
-                  <option value="inspector">Проверяющий (Полевой аудитор / Mystery Shopper)</option>
+                  <option value="inspector">Проверяющий (Полевой аудитор / Инспектор ОКК)</option>
+                  <option value="shopper">Шоппер (Тайный покупатель / Контрольные визиты)</option>
                   <option value="manager">Руководитель (Аналитик / Руководитель ОКК)</option>
                   <option value="admin">Администратор (Полный доступ к системе)</option>
                 </select>
@@ -1183,10 +1220,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/20 transition-all cursor-pointer flex items-center gap-2"
+                  disabled={isRegistering}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white shadow-lg shadow-blue-600/20 transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Send className="w-4 h-4" />
-                  <span>Зарегистрировать и отправить на почту</span>
+                  <span>{isRegistering ? "Регистрация..." : "Зарегистрировать и отправить на почту"}</span>
                 </button>
               </div>
             </form>
@@ -1479,14 +1517,22 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   <option value="admin">Администратор</option>
                   <option value="manager">Руководитель</option>
                   <option value="inspector">Проверяющий</option>
+                  <option value="shopper">Шоппер</option>
                 </select>
+              </div>
+
+              <div className="bg-blue-950/40 border border-blue-500/30 text-blue-200 text-[11px] p-3 rounded-xl flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">
+                  Корректировка профиля обновляет текущую информацию пользователя. Все ранее созданные им акты в реестре, отчеты и аналитика на дэшбордах сохраняют историческую привязку.
+                </span>
               </div>
 
               <div className="pt-3 flex justify-end gap-2 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setEditUser(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:bg-slate-800 transition-all"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:bg-slate-800 transition-all cursor-pointer"
                 >
                   Отмена
                 </button>
@@ -1498,6 +1544,69 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE USER CONFIRMATION MODAL */}
+      {deleteConfirmUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-red-400" />
+                <span>Удаление аккаунта пользователя</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmUser(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl text-xs text-slate-300 space-y-1.5">
+              <p><strong className="text-white">Сотрудник:</strong> {deleteConfirmUser.name}</p>
+              <p><strong className="text-white">Логин:</strong> <span className="font-mono text-blue-400">@{deleteConfirmUser.login}</span></p>
+              <p><strong className="text-white">Email:</strong> {deleteConfirmUser.email || "не указан"}</p>
+              <p><strong className="text-white">Роль:</strong> {
+                deleteConfirmUser.role === "admin" ? "Администратор" :
+                deleteConfirmUser.role === "manager" ? "Руководитель" :
+                deleteConfirmUser.role === "shopper" ? "Шоппер" : "Проверяющий"
+              }</p>
+            </div>
+
+            <div className="bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs p-3.5 rounded-xl space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-emerald-200">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Гарантия сохранности истории</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-emerald-300/90">
+                При удалении учетной записи все проведенные пользователем проверки, внесенные активы, реестр актов, PDF-отчеты и показатели аналитических дэшбордов <strong>навсегда сохраняются в системе</strong>.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmUser(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 transition-all cursor-pointer"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteUser(deleteConfirmUser.id);
+                  setDeleteConfirmUser(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/20 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Удалить учетную запись</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -16,27 +16,51 @@ export function getManagerBrand(user?: UserAccount | null): string | null {
 }
 
 /**
- * Проверяет, принадлежит ли проверка бренду текущего руководителя
+ * Проверяет, принадлежит ли проверка бренду или назначенному руководителю
  */
 export function isAuditBelongsToManager(audit: AuditRecord, user?: UserAccount | null): boolean {
   if (!user) return true;
   if (user.role !== "manager" && user.role !== "supervisor") return true;
 
-  // Если руководитель привязан напрямую по имени
-  if (audit.manager && user.name && audit.manager.toLowerCase().includes(user.name.toLowerCase())) {
-    return true;
+  // 1. Проверка по указанному имени ответственного руководителя
+  if (audit.manager && user.name) {
+    const auditMgr = audit.manager.trim().toLowerCase();
+    const userNm = user.name.trim().toLowerCase();
+
+    // Прямое или частичное совпадение
+    if (auditMgr.includes(userNm) || userNm.includes(auditMgr)) {
+      return true;
+    }
+
+    // Совпадение по фамилии
+    const auditLastName = auditMgr.split(/\s+/)[0];
+    const userLastName = userNm.split(/\s+/)[0];
+    if (auditLastName && userLastName && auditLastName.length > 2 && userNm.includes(auditLastName)) {
+      return true;
+    }
+
+    // Если у проверки назначен совершенно иной менеджер, запрещаем доступ
+    if (auditLastName && userLastName && auditLastName.length > 2 && userLastName.length > 2 && auditLastName !== userLastName) {
+      return false;
+    }
   }
 
+  // 2. Проверка по бренду / филиалу
   const managerBrand = getManagerBrand(user);
-  if (!managerBrand) return true;
+  if (managerBrand) {
+    const auditBrandLower = (audit.brand || "").toLowerCase();
+    const auditBranchLower = (audit.branch || "").toLowerCase();
+    const managerBrandLower = managerBrand.toLowerCase();
 
-  const auditBrandLower = (audit.brand || "").toLowerCase();
-  const managerBrandLower = managerBrand.toLowerCase();
-
-  // Совпадение по вхождению названий брендов
-  if (auditBrandLower.includes(managerBrandLower) || managerBrandLower.includes(auditBrandLower)) {
-    return true;
+    if (
+      auditBrandLower.includes(managerBrandLower) ||
+      managerBrandLower.includes(auditBrandLower) ||
+      auditBranchLower.includes(managerBrandLower)
+    ) {
+      return true;
+    }
   }
 
+  // Если имя не совпало и бренд не совпал
   return false;
 }

@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { loadDictionaries } from "../utils/dictionaryStore";
+import { getMonthNameFromDate } from "../utils/monthUtils";
 import { AuditRecord, UserAccount, ApprovalStatus } from "../types";
 import { isAuditBelongsToManager } from "../utils/brandAccess";
+import { createNotification } from "../utils/notificationStore";
 import { ApprovalWorkflowPanel } from "./ApprovalWorkflowPanel";
+import { generateSyntheticAudioDataUrl } from "../utils/audioGenerator";
 import {
   Folder,
   FolderPlus,
@@ -23,6 +26,7 @@ import {
   Building2,
   Calendar,
   AlertCircle,
+  AlertTriangle,
   FileSpreadsheet,
   Tag,
   ShieldCheck,
@@ -38,6 +42,9 @@ import {
   RotateCcw,
   FileCheck,
   MessageSquare,
+  Sparkles,
+  Shield,
+  Home,
 } from "lucide-react";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
 import { AuditReportView } from "./AuditReportView";
@@ -110,7 +117,7 @@ ${item.reportSummary}
 - **Цитата с таймкодом:** [00:45] Консультант: «Эта модель оснащена энергоэффективным процессором и быстрым накопителем, что обеспечивает плавную работу всех приложений.»
 - **Причины несоответствия / Анализ:** ${item.salesDriveScore >= 80 ? "Презентация построена по принципу «свойство — выгода». Перечислены ключевые ценности для клиента." : "Сотрудник перечислил технические характеристики без наглядных связок с персональной выгодой для клиента."}
 
-### ЭТАП 4: Работа с Сомнениями и Возражениями
+### ЭТАП 4: Работа с Возражениями
 - **Оценка:** 90% (Выполнено)
 - **Цитата с таймкодом:** [01:12] Консультант: «Понимаю ваше внимание к стоимости. Обратите внимание, что при покупке сегодня действует рассрочка 0% без комиссии.»
 - **Анализ:** Применён алгоритм «присоединение + аргументация + выгода».
@@ -189,11 +196,12 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     speechScore: 85,
     salesDriveScore: 25.0,
     stopFactors: 0,
+    audioFileName: "Запись_контрольной_закупки_AUD-2026-002.mp3",
     approvalStatus: "APPROVED_WITH_COMMENTS",
     approvedAt: "22.07.2026, 18:10",
     approvedBy: "Петров В.В. (Руководитель)",
     managerComment: "Результаты утверждены. Руководителю филиала провести инструктаж с консультантом по более активной презентации сопутствующих аксессуаров до пробития чека.",
-    reportSummary: "Высокое качество презентации и работы с сомнениями. Пропуск инициативного Cross-sell аксессуаров до оплаты.",
+    reportSummary: "Высокое качество презентации и работы с возражениями. Пропуск инициативного Cross-sell аксессуаров до оплаты.",
     approvalHistory: [
       {
         timestamp: "22.07.2026, 15:40",
@@ -248,10 +256,10 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
   {
     id: "AUD-2026-004",
     date: "23.07.2026",
-    brand: "ТехноМир Pro",
-    branch: "Филиал Центральный",
-    city: "Москва",
-    group: "Северный регион",
+    brand: "Enter",
+    branch: "Центр (бул. Штефан чел Маре, 136)",
+    city: "Кишинёв",
+    group: "Центральный регион",
     checkType: "2. Mystery shopper (без покупки)",
     employeeCode: "Алексей С.",
     inspector: "MS-007",
@@ -291,8 +299,8 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
   {
     id: "AUD-2026-005",
     date: "19.07.2026",
-    brand: "ТехноМир Pro",
-    branch: "Филиал Северный",
+    brand: "Darwin",
+    branch: "Бельцы (ул. Штефан чел Маре, 57)",
     city: "Бельцы",
     group: "Северный регион",
     checkType: "2. Mystery shopper (без покупки)",
@@ -307,6 +315,34 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     approvalStatus: "REVISION_REQUESTED",
     managerComment: "Подаю протест: Не согласен со стоп-фактором. Прошу переслушать фрагмент диалога 04:12.",
     reportSummary: "Зафиксировано использование закрытых вопросов и отсутствие выявления потребностей в начале разговора.",
+    fullReportText: `=== ОПИСАНИЕ ВИЗИТА ТАЙНОГО ПОКУПАТЕЛЯ ===
+• Шоппер: MS-012
+• Дата и время визита: 19.07.2026 (14:00 - 14:30)
+• Сеть: Darwin | Город: Бельцы | Филиал: ул. Штефан чел Маре, 57
+• Консультант: Петров Михаил
+
+1. ВНЕШНИЙ ВИД КОНСУЛЬТАНТА:
+- Униформа: Соответствует стандарту
+- Опрятность: Опрятный
+- Бейдж: На месте и читаем
+
+2. ОЦЕНКА МАГАЗИНА:
+- Чистота и витрины: 5 / 5
+- Выкладка товара: 4 / 5
+- Ассортимент товара: 5 / 5
+- Комментарий по магазину: Витрины чистые, освещение хорошее.
+
+3. ПОЗИЦИОНИРОВАНИЕ В ЗАЛЕ:
+- Доступность сотрудников: Сразу доступны
+- Отсутствие кучкования: Рассредоточены
+- Порядок в зале: Чисто, отсутствует пыль
+
+4. МНЕНИЕ И ВПЕЧАТЛЕНИЯ ШОППЕРА:
+👍 ЧТО ПОНРАВИЛОСЬ:
+Консультант вежливый, сразу предложил пройти к стенду со смартфонами.
+
+👎 ЧТО НЕ ПОНРАВИЛОСЬ:
+Задал закрытый вопрос ("Вам показать вот этот?"), не уточнил бюджет и цели использования.`,
     approvalHistory: [
       {
         timestamp: "19.07.2026, 14:00",
@@ -395,6 +431,8 @@ interface AuditRegistryProps {
   onNotificationCreated?: () => void;
   selectedRecordIdForModal?: string | null;
   onClearSelectedModalId?: () => void;
+  onLoadVisitToForm?: (record: AuditRecord) => void;
+  onEditShopperVisit?: (record: AuditRecord) => void;
 }
 
 export function AuditRegistry({
@@ -405,6 +443,8 @@ export function AuditRegistry({
   onNotificationCreated,
   selectedRecordIdForModal,
   onClearSelectedModalId,
+  onLoadVisitToForm,
+  onEditShopperVisit,
 }: AuditRegistryProps) {
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -412,6 +452,7 @@ export function AuditRegistry({
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>("ALL");
   const [selectedManagerFilter, setSelectedManagerFilter] = useState<string>("ALL");
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("ALL");
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("ALL");
   const [selectedCheckType, setSelectedCheckType] = useState<string>("ALL");
   const [selectedApprovalFilter, setSelectedApprovalFilter] = useState<string>("ALL");
   const [selectedDateFilter, setSelectedDateFilter] = useState<string>("ALL"); // "ALL" | "TODAY" | "THIS_MONTH" | "CUSTOM"
@@ -422,7 +463,7 @@ export function AuditRegistry({
 
   // Modal for Viewing Full Audit Report
   const [viewingRecord, setViewingRecord] = useState<AuditRecord | null>(null);
-  const [showFullReportInModal, setShowFullReportInModal] = useState<boolean>(false);
+  const [showFullReportInModal, setShowFullReportInModal] = useState<boolean>(true);
 
   const handleCloseModal = () => {
     setViewingRecord(null);
@@ -500,27 +541,13 @@ export function AuditRegistry({
 
   // Helper to download audio file
   const downloadAudioFile = (item: AuditRecord) => {
-    if (item.audioUrl) {
-      const a = document.createElement("a");
-      a.href = item.audioUrl;
-      a.download = item.audioFileName || `Аудиозапись_${item.id}.mp3`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      return;
-    }
-
-    const audioMockText = `================================================\nАУДИОПРОТОКОЛ И ЗАПИСЬ ПРОВЕРКИ ${item.id}\nДата: ${item.date} | Филиал: ${item.branch}\nСотрудник: ${item.employeeCode} | Проверяющий: ${item.inspector}\n================================================\n\n[00:00] Консультант (${item.employeeCode}): Здравствуйте! Рады приветствовать вас в нашем салоне.\n[00:08] Клиент (Тайный покупатель): Здравствуйте, консультируюсь по выбору смартфона и подключению пакета.\n[00:15] Консультант (${item.employeeCode}): С удовольствием помогу! Какими основными функциями вы чаще всего пользуетесь?\n[00:28] Клиент: Камера, мессенджеры и автономность аккумулятора.\n[00:40] Консультант: Отлично! Рекомендую рассмотреть флагманскую модель...\n\n(Запись успешно выгружена из реестра проверок ОКК)`;
-
-    const blob = new Blob([audioMockText], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
+    const audioUrl = item.audioUrl || generateSyntheticAudioDataUrl(185);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = item.audioFileName || `Аудиозапись_проверки_${item.id}.mp3`;
+    a.href = audioUrl;
+    a.download = item.audioFileName || `Запись_контрольной_закупки_${item.id}.wav`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   // Export records to CSV for Excel analysis
@@ -537,10 +564,14 @@ export function AuditRegistry({
       "Формат проверки",
       "Сотрудник",
       "Проверяющий",
-      "BPV Index (%)",
-      "Речевой индекс (%)",
-      "Sales Drive (%)",
-      "Стоп-факторы",
+      ...(isShopper
+        ? []
+        : [
+            "BPV Index (%)",
+            "Речевой индекс (%)",
+            "Sales Drive (%)",
+            "Стоп-факторы",
+          ]),
       "Заключение / Резюме",
     ];
 
@@ -560,10 +591,14 @@ export function AuditRegistry({
       escapeCsv(item.checkType),
       escapeCsv(item.employeeCode),
       escapeCsv(item.inspector),
-      escapeCsv(item.bpvScore),
-      escapeCsv(item.speechScore ?? 90),
-      escapeCsv(item.salesDriveScore),
-      escapeCsv(item.stopFactors),
+      ...(isShopper
+        ? []
+        : [
+            escapeCsv(item.bpvScore),
+            escapeCsv(item.speechScore ?? 90),
+            escapeCsv(item.salesDriveScore),
+            escapeCsv(item.stopFactors),
+          ]),
       escapeCsv(item.reportSummary ? item.reportSummary.replace(/[\r\n]+/g, " ") : ""),
     ]);
 
@@ -597,6 +632,19 @@ export function AuditRegistry({
     "Полная проверка с контрольной закупкой": true,
     "Mystery shopper / Оценка BPV (Без покупки)": true,
   });
+
+  // Notice Banner State
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
+
+  // Deletion permission checks: Only Admin and Auditor roles can delete
+  const isAuthorizedToDelete =
+    currentUser?.role === "admin" ||
+    currentUser?.role === "auditor" ||
+    currentUser?.role === "shopper" ||
+    currentUser?.role === "inspector";
+
+  const isAdmin = currentUser?.role === "admin";
+  const isShopper = currentUser?.role === "shopper";
 
   // Modal Delete Confirmation State
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
@@ -632,14 +680,33 @@ export function AuditRegistry({
     reportSummary: "Новая проверка внесена в реестр.",
   });
 
-  // Accessible records according to manager's brand isolation
-  const accessibleRecords = records.filter((r) => isAuditBelongsToManager(r, currentUser));
+  // Accessible records according to role
+  const accessibleRecords = records.filter((r) => {
+    if (currentUser?.role === "shopper") {
+      const shopperName = (currentUser.name || "").toLowerCase().trim();
+      const inspectorName = (r.inspector || "").toLowerCase().trim();
+      return (
+        inspectorName.includes(shopperName) ||
+        shopperName.includes(inspectorName) ||
+        (r.checkType && r.checkType.toLowerCase().includes("mystery")) ||
+        (r.checkType && r.checkType.toLowerCase().includes("тайный"))
+      );
+    }
+    return isAuditBelongsToManager(r, currentUser);
+  });
 
   // Available unique values for dropdowns
   const uniqueBrands = Array.from(new Set(accessibleRecords.map((r) => r.brand).filter(Boolean)));
   const uniqueRegions = Array.from(new Set(accessibleRecords.map((r) => r.group || (r as any).region).filter(Boolean)));
   const uniqueManagers = Array.from(new Set(accessibleRecords.map((r) => r.manager).filter(Boolean)));
   const uniqueCities = Array.from(new Set(accessibleRecords.map((r) => r.city).filter(Boolean)));
+  const uniqueMonths = Array.from(
+    new Set(
+      accessibleRecords
+        .map((r) => r.month || getMonthNameFromDate(r.date))
+        .filter(Boolean)
+    )
+  );
   const existingGroups = Array.from(new Set(accessibleRecords.map((r) => r.group || "Без группы")));
 
   // Date parser helper
@@ -678,6 +745,8 @@ export function AuditRegistry({
     const matchesRegion = selectedRegionFilter === "ALL" || (rec.group || (rec as any).region) === selectedRegionFilter;
     const matchesManager = selectedManagerFilter === "ALL" || rec.manager === selectedManagerFilter;
     const matchesCity = selectedCityFilter === "ALL" || rec.city === selectedCityFilter;
+    const recMonth = rec.month || getMonthNameFromDate(rec.date);
+    const matchesMonth = selectedMonthFilter === "ALL" || recMonth === selectedMonthFilter;
 
     const matchesSearch =
       rec.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -743,7 +812,7 @@ export function AuditRegistry({
       matchesApproval = recStatus === selectedApprovalFilter;
     }
 
-    return matchesBrand && matchesRegion && matchesManager && matchesCity && matchesSearch && matchesType && matchesDate && matchesApproval;
+    return matchesBrand && matchesRegion && matchesManager && matchesCity && matchesMonth && matchesSearch && matchesType && matchesDate && matchesApproval;
   });
 
   // Group records by chosen key
@@ -786,7 +855,7 @@ export function AuditRegistry({
 
   // Select/Unselect All
   const toggleSelectAll = () => {
-    if (selectedIds.length === filteredRecords.length) {
+    if (selectedIds.length === filteredRecords.length && filteredRecords.length > 0) {
       setSelectedIds([]);
     } else {
       setSelectedIds(filteredRecords.map((r) => r.id));
@@ -795,6 +864,10 @@ export function AuditRegistry({
 
   // Delete single record
   const handleDeleteSingle = (id: string) => {
+    if (!isAuthorizedToDelete) {
+      setDeleteNotice("Удаление проверок и файлов доступно только Администратору и Аудитору.");
+      return;
+    }
     setDeleteConfirmModal({
       isOpen: true,
       type: "single",
@@ -804,6 +877,11 @@ export function AuditRegistry({
 
   // Bulk Delete
   const handleBulkDelete = () => {
+    if (!isAuthorizedToDelete) {
+      setDeleteNotice("Удаление проверок и файлов доступно только Администратору и Аудитору.");
+      return;
+    }
+    if (selectedIds.length === 0) return;
     setDeleteConfirmModal({
       isOpen: true,
       type: "bulk",
@@ -812,16 +890,82 @@ export function AuditRegistry({
 
   // Confirm delete action
   const confirmDelete = () => {
-    if (deleteConfirmModal.type === "single" && deleteConfirmModal.id) {
-      const targetId = deleteConfirmModal.id;
-      const updated = records.filter((r) => r.id !== targetId);
-      onUpdateRecords(updated);
-      setSelectedIds((prev) => prev.filter((i) => i !== targetId));
-    } else if (deleteConfirmModal.type === "bulk") {
-      const updated = records.filter((r) => !selectedIds.includes(r.id));
-      onUpdateRecords(updated);
-      setSelectedIds([]);
+    if (!isAuthorizedToDelete) {
+      setDeleteNotice("Ошибка: у вас недостаточно прав для удаления проверок.");
+      setDeleteConfirmModal({ isOpen: false, type: "single" });
+      return;
     }
+
+    const targetItems =
+      deleteConfirmModal.type === "single" && deleteConfirmModal.id
+        ? records.filter((r) => r.id === deleteConfirmModal.id)
+        : records.filter((r) => selectedIds.includes(r.id));
+
+    if (targetItems.length === 0) {
+      setDeleteConfirmModal({ isOpen: false, type: "single" });
+      return;
+    }
+
+    const targetIds = targetItems.map((r) => r.id);
+
+    if (isAdmin) {
+      // Admin deletes directly
+      const updated = records.filter((r) => !targetIds.includes(r.id));
+      onUpdateRecords(updated);
+      setSelectedIds((prev) => prev.filter((i) => !targetIds.includes(i)));
+      setDeleteNotice(`Администратор успешно удалил проверок: ${targetItems.length}`);
+    } else {
+      // Auditor flow: Auditor cannot delete APPROVED checks directly
+      const unapprovedItems = targetItems.filter(
+        (r) =>
+          r.approvalStatus !== "APPROVED" &&
+          r.approvalStatus !== "APPROVED_WITH_COMMENTS" &&
+          r.approvalStatus !== "FINALIZED"
+      );
+
+      const approvedItems = targetItems.filter(
+        (r) =>
+          r.approvalStatus === "APPROVED" ||
+          r.approvalStatus === "APPROVED_WITH_COMMENTS" ||
+          r.approvalStatus === "FINALIZED"
+      );
+
+      // 1. Delete unapproved items directly
+      const unapprovedIds = unapprovedItems.map((r) => r.id);
+      const updated = records.filter((r) => !unapprovedIds.includes(r.id));
+      onUpdateRecords(updated);
+
+      // 2. Create deletion approval request notifications for Admin for approved items
+      approvedItems.forEach((item) => {
+        createNotification({
+          recipientName: "Администратор",
+          recipientRole: "admin",
+          title: `Запрос на удаление утвержденной проверки ${item.id}`,
+          message: `Аудитор ${currentUser?.name || "Аудитор"} запрашивает удаление утвержденной проверки № ${item.id} (${item.branch}, сотрудник ${item.employeeCode}). Подтвердите или отклоните удаление.`,
+          auditId: item.id,
+          type: "AUDIT_DELETE_REQUEST",
+        });
+      });
+
+      if (approvedItems.length > 0) {
+        onNotificationCreated?.();
+      }
+
+      setSelectedIds((prev) => prev.filter((i) => !targetIds.includes(i)));
+
+      if (unapprovedItems.length > 0 && approvedItems.length === 0) {
+        setDeleteNotice(`Успешно удалено неутвержденных проверок: ${unapprovedItems.length}`);
+      } else if (approvedItems.length > 0 && unapprovedItems.length === 0) {
+        setDeleteNotice(
+          `Утвержденные проверки (${approvedItems.length} шт.) отправлены Администратору на согласование удаления (в колокольчик).`
+        );
+      } else {
+        setDeleteNotice(
+          `Удалено прямо: ${unapprovedItems.length}. На согласование Администратору отправлено: ${approvedItems.length} утвержденных проверок.`
+        );
+      }
+    }
+
     setDeleteConfirmModal({ isOpen: false, type: "single" });
   };
 
@@ -890,6 +1034,22 @@ export function AuditRegistry({
 
   return (
     <div className="space-y-6 animate-fadeIn">
+      {/* Notice Banner */}
+      {deleteNotice && (
+        <div className="bg-blue-950/80 border border-blue-500/40 rounded-2xl p-4 flex items-start justify-between gap-3 text-blue-200 text-xs sm:text-sm animate-fadeIn backdrop-blur-md shadow-xl">
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0" />
+            <span className="font-medium">{deleteNotice}</span>
+          </div>
+          <button
+            onClick={() => setDeleteNotice(null)}
+            className="text-blue-400 hover:text-white p-1 rounded-lg hover:bg-blue-900/40 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Header Controls Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -910,7 +1070,7 @@ export function AuditRegistry({
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => setTableDensity((prev) => (prev === "comfortable" ? "compact" : "comfortable"))}
-            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm"
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm cursor-pointer"
             title="Переключить плотность отображения строк таблицы"
           >
             <Layers className="w-4 h-4 text-amber-400" />
@@ -919,42 +1079,207 @@ export function AuditRegistry({
 
           <button
             onClick={exportToCsv}
-            className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm"
+            className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm cursor-pointer"
             title="Экспортировать все отфильтрованные данные реестра в CSV для Excel"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>Экспортировать в CSV</span>
           </button>
 
-          <button
-            onClick={() => setIsCreatingNew(true)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-lg shadow-blue-600/20"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Добавить запись</span>
-          </button>
+          {currentUser?.role !== "shopper" && (
+            <button
+              onClick={() => setIsCreatingNew(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-lg shadow-blue-600/20 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Добавить запись</span>
+            </button>
+          )}
 
           {selectedIds.length > 0 && (
-            <>
-              <button
-                onClick={() => setMovingModalOpen(true)}
-                className="flex items-center gap-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 font-semibold text-xs px-3 py-2 rounded-xl transition-all"
-              >
-                <Move className="w-4 h-4" />
-                <span>Переместить ({selectedIds.length})</span>
-              </button>
+            <div className="flex items-center gap-2 bg-slate-950 border border-slate-700/80 px-3 py-1.5 rounded-xl">
+              <span className="text-xs font-bold text-slate-200">
+                Выбрано: <span className="text-blue-400 font-mono">{selectedIds.length}</span>
+              </span>
+
+              {currentUser?.role !== "shopper" && (
+                <button
+                  onClick={() => setMovingModalOpen(true)}
+                  className="flex items-center gap-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 font-semibold text-xs px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                >
+                  <Move className="w-3.5 h-3.5" />
+                  <span>Переместить</span>
+                </button>
+              )}
+
+              {isAuthorizedToDelete && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 font-semibold text-xs px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                  title="Удалить выбранные проверки"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Удалить ({selectedIds.length})</span>
+                </button>
+              )}
 
               <button
-                onClick={handleBulkDelete}
-                className="flex items-center gap-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 font-semibold text-xs px-3 py-2 rounded-xl transition-all"
+                onClick={() => setSelectedIds([])}
+                className="text-xs text-slate-400 hover:text-white underline cursor-pointer ml-1"
               >
-                <Trash2 className="w-4 h-4" />
-                <span>Удалить ({selectedIds.length})</span>
+                Сбросить
               </button>
-            </>
+            </div>
           )}
         </div>
       </div>
+
+      {/* MANAGER / SUPERVISOR WORKFLOW STATUS CARDS */}
+      {currentUser?.role !== "shopper" ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-semibold px-1">
+            <span className="flex items-center gap-2 text-indigo-300">
+              <Shield className="w-4 h-4 text-indigo-400" />
+              <span>Кабинет Руководителя: Выбор статуса для проработки проверок</span>
+            </span>
+            <span className="text-[11px] text-slate-500">
+              Доступно вам: <strong className="text-slate-300">{accessibleRecords.length}</strong> проверок
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            {/* Card 1: PENDING_APPROVAL */}
+            <button
+              type="button"
+              onClick={() => setSelectedApprovalFilter("PENDING_APPROVAL")}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedApprovalFilter === "PENDING_APPROVAL"
+                  ? "bg-amber-500/20 border-amber-500 text-amber-200 ring-2 ring-amber-500/30 shadow-lg shadow-amber-500/10"
+                  : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">На согласовании</span>
+                <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+              </div>
+              <div className="text-xl font-black text-white mt-1">
+                {accessibleRecords.filter((r) => (r.approvalStatus || "PENDING_APPROVAL") === "PENDING_APPROVAL").length}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Требуют проработки</div>
+            </button>
+
+            {/* Card 2: APPROVED */}
+            <button
+              type="button"
+              onClick={() => setSelectedApprovalFilter("APPROVED")}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedApprovalFilter === "APPROVED"
+                  ? "bg-emerald-500/20 border-emerald-500 text-emerald-200 ring-2 ring-emerald-500/30 shadow-lg shadow-emerald-500/10"
+                  : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Утверждено</span>
+                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+              </div>
+              <div className="text-xl font-black text-white mt-1">
+                {accessibleRecords.filter((r) => r.approvalStatus === "APPROVED").length}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Без замечаний</div>
+            </button>
+
+            {/* Card 3: APPROVED_WITH_COMMENTS */}
+            <button
+              type="button"
+              onClick={() => setSelectedApprovalFilter("APPROVED_WITH_COMMENTS")}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedApprovalFilter === "APPROVED_WITH_COMMENTS"
+                  ? "bg-amber-500/20 border-amber-500 text-amber-200 ring-2 ring-amber-500/30 shadow-lg shadow-amber-500/10"
+                  : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">С замечаниями</span>
+                <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
+              </div>
+              <div className="text-xl font-black text-white mt-1">
+                {accessibleRecords.filter((r) => r.approvalStatus === "APPROVED_WITH_COMMENTS").length}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Утверждены с комментарием</div>
+            </button>
+
+            {/* Card 4: REVISION_REQUESTED */}
+            <button
+              type="button"
+              onClick={() => setSelectedApprovalFilter("REVISION_REQUESTED")}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedApprovalFilter === "REVISION_REQUESTED"
+                  ? "bg-red-500/20 border-red-500 text-red-200 ring-2 ring-red-500/30 shadow-lg shadow-red-500/10"
+                  : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-red-400">Опротестовано</span>
+                <RotateCcw className="w-4 h-4 text-red-400 shrink-0" />
+              </div>
+              <div className="text-xl font-black text-white mt-1">
+                {accessibleRecords.filter((r) => r.approvalStatus === "REVISION_REQUESTED").length}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">На пересмотре аудитора</div>
+            </button>
+
+            {/* Card 5: FINALIZED */}
+            <button
+              type="button"
+              onClick={() => setSelectedApprovalFilter("FINALIZED")}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedApprovalFilter === "FINALIZED"
+                  ? "bg-blue-500/20 border-blue-500 text-blue-200 ring-2 ring-blue-500/30 shadow-lg shadow-blue-500/10"
+                  : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">Финализировано</span>
+                <FileCheck className="w-4 h-4 text-blue-400 shrink-0" />
+              </div>
+              <div className="text-xl font-black text-white mt-1">
+                {accessibleRecords.filter((r) => r.approvalStatus === "FINALIZED").length}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Пересмотр завершен</div>
+            </button>
+
+            {/* Card 6: ALL */}
+            <button
+              type="button"
+              onClick={() => setSelectedApprovalFilter("ALL")}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                selectedApprovalFilter === "ALL"
+                  ? "bg-indigo-500/20 border-indigo-500 text-indigo-200 ring-2 ring-indigo-500/30 shadow-lg shadow-indigo-500/10"
+                  : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">Все проверки</span>
+                <Shield className="w-4 h-4 text-indigo-400 shrink-0" />
+              </div>
+              <div className="text-xl font-black text-white mt-1">
+                {accessibleRecords.length}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Полный список</div>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="p-4 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-xs text-emerald-200">
+          <span className="flex items-center gap-2 font-medium">
+            <UserCheck className="w-4 h-4 text-emerald-400" />
+            <span>Реестр отправленных вами анкет Mystery shopper</span>
+          </span>
+          <span className="font-bold bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30 text-emerald-300">
+            Всего отправлено: {accessibleRecords.length}
+          </span>
+        </div>
+      )}
 
       {/* Filter and Grouping Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1019,20 +1344,33 @@ export function AuditRegistry({
             ))}
           </select>
 
+          {/* Month Filter */}
+          <select
+            value={selectedMonthFilter}
+            onChange={(e) => setSelectedMonthFilter(e.target.value)}
+            className="bg-slate-950 border border-indigo-500/30 text-indigo-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer"
+          >
+            <option value="ALL">Все месяцы</option>
+            {uniqueMonths.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+
           {/* Approval Status Filter */}
-          <div className="flex items-center gap-2">
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
+          <div className="flex items-center gap-1.5 bg-slate-950 border border-blue-500/30 rounded-xl px-2.5 py-1.5">
+            <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="text-xs font-semibold text-slate-300 whitespace-nowrap">Статус проверки:</span>
             <select
               value={selectedApprovalFilter}
               onChange={(e) => setSelectedApprovalFilter(e.target.value)}
-              className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-blue-500 font-medium cursor-pointer"
+              className="bg-transparent text-white text-xs font-bold focus:outline-none cursor-pointer py-0.5 pr-1"
             >
-              <option value="ALL">Все статусы согласования</option>
-              <option value="PENDING_APPROVAL">🟡 На согласовании</option>
-              <option value="APPROVED_WITH_COMMENTS">🟠 Утвержден с замечаниями</option>
-              <option value="APPROVED">🟢 Утверждены</option>
-              <option value="REVISION_REQUESTED">🔴 На пересмотре</option>
-              <option value="FINALIZED">🔵 Финализированы</option>
+              <option value="ALL" className="bg-slate-900 text-slate-100 font-medium">Все статусы</option>
+              <option value="PENDING_APPROVAL" className="bg-slate-900 text-amber-300 font-medium">🟡 На согласовании</option>
+              <option value="APPROVED" className="bg-slate-900 text-emerald-300 font-medium">🟢 Утвержден (без замечаний)</option>
+              <option value="APPROVED_WITH_COMMENTS" className="bg-slate-900 text-amber-400 font-medium">🟠 Утвержден с замечаниями</option>
+              <option value="REVISION_REQUESTED" className="bg-slate-900 text-rose-300 font-medium">🔴 На пересмотре / Доработке</option>
+              <option value="FINALIZED" className="bg-slate-900 text-blue-300 font-medium">🔵 Финализирован / Завершен</option>
             </select>
           </div>
 
@@ -1195,10 +1533,12 @@ export function AuditRegistry({
                   </div>
 
                   <div className="flex items-center gap-4 text-xs">
-                    <div className="hidden sm:flex items-center gap-2">
-                      <span className="text-slate-400">Ср. BPV:</span>
-                      <span className="font-bold text-emerald-400">{avgGroupBpv}%</span>
-                    </div>
+                    {!isShopper && (
+                      <div className="hidden sm:flex items-center gap-2">
+                        <span className="text-slate-400">Ср. BPV:</span>
+                        <span className="font-bold text-emerald-400">{avgGroupBpv}%</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1230,10 +1570,15 @@ export function AuditRegistry({
                           <th className="py-2.5 px-3">Группа/Регион</th>
                           <th className="py-2.5 px-3">Тип проверки</th>
                           <th className="py-2.5 px-3">Согласование</th>
-                          <th className="py-2.5 px-3 text-center">BPV Index</th>
-                          <th className="py-2.5 px-3 text-center">Речевой индекс</th>
-                          <th className="py-2.5 px-3 text-center">Sales Drive</th>
-                          <th className="py-2.5 px-3">Файлы</th>
+                          {!isShopper && (
+                            <>
+                              <th className="py-2.5 px-3 text-center">BPV Index</th>
+                              <th className="py-2.5 px-3 text-center">Речевой индекс</th>
+                              <th className="py-2.5 px-3 text-center">Sales Drive</th>
+                              <th className="py-2.5 px-3 text-center">Стоп-факторы</th>
+                              <th className="py-2.5 px-3">Файлы</th>
+                            </>
+                          )}
                           <th className="py-2.5 px-3 text-right">Действия</th>
                         </tr>
                       </thead>
@@ -1266,8 +1611,8 @@ export function AuditRegistry({
                                 <div className="font-semibold text-slate-200">
                                   {item.id}
                                 </div>
-                                <div className="text-[10px] text-slate-500">
-                                  {item.date}
+                                <div className="text-[10px] text-slate-400 font-medium">
+                                  {item.date} • <span className="text-indigo-300">{item.month || getMonthNameFromDate(item.date)}</span>
                                 </div>
                               </td>
 
@@ -1384,56 +1729,79 @@ export function AuditRegistry({
                                 )}
                               </td>
 
-                              <td className={`${cellPad} text-center font-bold`}>
-                                <ScoreBadge score={item.bpvScore} />
-                              </td>
+                              {!isShopper && (
+                                <>
+                                  <td className={`${cellPad} text-center font-bold`}>
+                                    <ScoreBadge score={item.bpvScore} />
+                                  </td>
 
-                              <td className={`${cellPad} text-center font-bold`}>
-                                <span
-                                  className={
-                                    (item.speechScore ?? 90) >= 85
-                                      ? "text-emerald-400"
-                                      : "text-amber-400"
-                                  }
-                                >
-                                  {item.speechScore ?? 90}%
-                                </span>
-                              </td>
+                                  <td className={`${cellPad} text-center font-bold`}>
+                                    <span
+                                      className={
+                                        (item.speechScore ?? 90) >= 85
+                                          ? "text-emerald-400"
+                                          : "text-amber-400"
+                                      }
+                                    >
+                                      {item.speechScore ?? 90}%
+                                    </span>
+                                  </td>
 
-                              <td className={`${cellPad} text-center font-bold`}>
-                                <span
-                                  className={
-                                    item.salesDriveScore >= 70
-                                      ? "text-emerald-400"
-                                      : "text-amber-400"
-                                  }
-                                >
-                                  {item.salesDriveScore}%
-                                </span>
-                              </td>
+                                  <td className={`${cellPad} text-center font-bold`}>
+                                    <span
+                                      className={
+                                        item.salesDriveScore >= 70
+                                          ? "text-emerald-400"
+                                          : "text-amber-400"
+                                      }
+                                    >
+                                      {item.salesDriveScore}%
+                                    </span>
+                                  </td>
 
-                              {/* Файлы отчета и аудиозаписи */}
-                              <td className={cellPad}>
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    onClick={() => downloadReportPdf(item)}
-                                    className="flex items-center gap-1 bg-slate-950 hover:bg-slate-800 text-blue-400 hover:text-blue-300 text-[10px] font-medium px-2 py-1 rounded-lg border border-slate-800 transition-all shadow-sm"
-                                    title={`Скачать актовый отчет по проверке ${item.id} (PDF)`}
-                                  >
-                                    <FileText className="w-3.5 h-3.5 text-blue-400" />
-                                    <span>Отчет (PDF)</span>
-                                  </button>
+                                  <td className={`${cellPad} text-center font-bold`}>
+                                    {item.stopFactors > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setViewingRecord(item);
+                                        }}
+                                        className="inline-flex items-center gap-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all shadow-xs"
+                                        title="Нажмите, чтобы просмотреть акт проверки со стоп-фактором"
+                                      >
+                                        <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
+                                        <span>{item.stopFactors}</span>
+                                      </button>
+                                    ) : (
+                                      <span className="text-slate-600 text-[11px] font-mono">0</span>
+                                    )}
+                                  </td>
 
-                                  <button
-                                    onClick={() => downloadAudioFile(item)}
-                                    className="flex items-center gap-1 bg-slate-950 hover:bg-slate-800 text-amber-400 hover:text-amber-300 text-[10px] font-medium px-2 py-1 rounded-lg border border-slate-800 transition-all shadow-sm"
-                                    title={item.audioFileName ? `Скачать ${item.audioFileName}` : `Скачать аудиозапись проверки ${item.id}`}
-                                  >
-                                    <Mic className="w-3.5 h-3.5 text-amber-400" />
-                                    <span>Аудио</span>
-                                  </button>
-                                </div>
-                              </td>
+                                  {/* Файлы отчета и аудиозаписи */}
+                                  <td className={cellPad}>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => downloadReportPdf(item)}
+                                        className="flex items-center gap-1 bg-slate-950 hover:bg-slate-800 text-blue-400 hover:text-blue-300 text-[10px] font-medium px-2 py-1 rounded-lg border border-slate-800 transition-all shadow-sm"
+                                        title={`Скачать актовый отчет по проверке ${item.id} (PDF)`}
+                                      >
+                                        <FileText className="w-3.5 h-3.5 text-blue-400" />
+                                        <span>Отчет (PDF)</span>
+                                      </button>
+
+                                      <button
+                                        onClick={() => downloadAudioFile(item)}
+                                        className="flex items-center gap-1 bg-slate-950 hover:bg-slate-800 text-amber-400 hover:text-amber-300 text-[10px] font-medium px-2 py-1 rounded-lg border border-slate-800 transition-all shadow-sm"
+                                        title={item.audioFileName ? `Скачать ${item.audioFileName}` : `Скачать аудиозапись проверки ${item.id}`}
+                                      >
+                                        <Mic className="w-3.5 h-3.5 text-amber-400" />
+                                        <span>Аудио</span>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </>
+                              )}
 
                               <td className="py-3 px-3 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
@@ -1465,13 +1833,15 @@ export function AuditRegistry({
                                   </button>
 
                                   {/* Export PDF Button */}
-                                  <button
-                                    onClick={() => downloadReportPdf(item)}
-                                    className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition-colors"
-                                    title="Печать / Скачать PDF акта ОКК"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                  </button>
+                                  {!isShopper && (
+                                    <button
+                                      onClick={() => downloadReportPdf(item)}
+                                      className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition-colors"
+                                      title="Печать / Скачать PDF акта ОКК"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -1861,41 +2231,87 @@ export function AuditRegistry({
       {deleteConfirmModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center gap-3 text-red-400">
-              <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20">
-                <Trash2 className="w-6 h-6 text-red-400" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">
-                  Подтверждение удаления
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {deleteConfirmModal.type === "single"
-                    ? `Вы действительно хотите удалить проверку ${deleteConfirmModal.id}?`
-                    : `Вы действительно хотите удалить ${selectedIds.length} выбранных проверок из реестра?`}
-                </p>
-              </div>
-            </div>
+            {(() => {
+              const targetItems =
+                deleteConfirmModal.type === "single" && deleteConfirmModal.id
+                  ? records.filter((r) => r.id === deleteConfirmModal.id)
+                  : records.filter((r) => selectedIds.includes(r.id));
 
-            <p className="text-xs text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-800/80">
-              ⚠️ Это действие безвозвратно удалит выбранную запись и связанные данные из локального реестра.
-            </p>
+              const approvedCount = targetItems.filter(
+                (r) =>
+                  r.approvalStatus === "APPROVED" ||
+                  r.approvalStatus === "APPROVED_WITH_COMMENTS" ||
+                  r.approvalStatus === "FINALIZED"
+              ).length;
 
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={() => setDeleteConfirmModal({ isOpen: false, type: "single" })}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition-all"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-red-600/20 transition-all flex items-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Удалить безвозвратно</span>
-              </button>
-            </div>
+              const unapprovedCount = targetItems.length - approvedCount;
+
+              return (
+                <>
+                  <div className="flex items-center gap-3 text-red-400">
+                    <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20">
+                      <Trash2 className="w-6 h-6 text-red-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">
+                        Подтверждение удаления
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {deleteConfirmModal.type === "single"
+                          ? `Запрос на удаление проверки ${deleteConfirmModal.id}`
+                          : `Запрос на удаление ${targetItems.length} выбранных проверок`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {!isAuthorizedToDelete ? (
+                    <div className="text-xs text-red-300 bg-red-950/40 p-3 rounded-xl border border-red-500/30">
+                      ⚠️ Удалять проверки и файлы может только Администратор и Аудитор. У вашей текущей роли недостаточно прав.
+                    </div>
+                  ) : isAdmin ? (
+                    <p className="text-xs text-slate-300 bg-slate-950 p-3 rounded-xl border border-slate-800/80 leading-relaxed">
+                      Вы вошли как <strong className="text-amber-400">Администратор</strong>. Выбранная(ые) проверка(и) ({targetItems.length} шт.) будут <span className="text-red-400 font-bold">безвозвратно удалены</span> из реестра.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 text-xs text-slate-300 bg-slate-950 p-3 rounded-xl border border-slate-800/80 leading-relaxed">
+                      <p className="font-semibold text-amber-300">Правила удаления для роли Аудитор:</p>
+                      {unapprovedCount > 0 && (
+                        <p className="text-emerald-400 font-medium">
+                          • Неутвержденные проверки: <strong>{unapprovedCount}</strong> (будут удалены сразу).
+                        </p>
+                      )}
+                      {approvedCount > 0 && (
+                        <p className="text-amber-400 font-medium">
+                          • Утвержденные проверки: <strong>{approvedCount}</strong> (Аудитор не может удалять их напрямую. Запрос будет направлен Администратору на согласование в оповещения).
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button
+                      onClick={() => setDeleteConfirmModal({ isOpen: false, type: "single" })}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition-all cursor-pointer"
+                    >
+                      Отмена
+                    </button>
+                    {isAuthorizedToDelete && (
+                      <button
+                        onClick={confirmDelete}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-red-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>
+                          {!isAdmin && approvedCount > 0 && unapprovedCount === 0
+                            ? "Отправить запрос Админу"
+                            : "Подтвердить удаление"}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1931,14 +2347,30 @@ export function AuditRegistry({
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => downloadReportPdf(viewingRecord)}
-                  className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Скачать PDF</span>
-                </button>
+                {onLoadVisitToForm && !isShopper && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onLoadVisitToForm(viewingRecord);
+                      handleCloseModal();
+                    }}
+                    className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-md shadow-blue-600/20 cursor-pointer"
+                    title="Автозаполнить конструктор аудита на основе данных этого визита"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>Автозаполнить в Конструкторе</span>
+                  </button>
+                )}
+                {!isShopper && (
+                  <button
+                    type="button"
+                    onClick={() => downloadReportPdf(viewingRecord)}
+                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Скачать PDF</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleCloseModal}
@@ -1981,6 +2413,7 @@ export function AuditRegistry({
                 <AuditReportView
                   report={viewingRecord.fullReportText || buildFullReportMarkdown(viewingRecord)}
                   isAnalyzing={false}
+                  currentUser={currentUser}
                   auditData={{
                     id: viewingRecord.id,
                     date: viewingRecord.date,
@@ -2016,14 +2449,24 @@ export function AuditRegistry({
               <span className="text-xs text-slate-400 font-mono">
                 АКТ ОКК: {viewingRecord.id} • {viewingRecord.brand}
               </span>
-              <button
-                type="button"
-                onClick={handleCloseModal}
-                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-all border border-slate-700 cursor-pointer flex items-center gap-2 shadow-md"
-              >
-                <X className="w-4 h-4 text-slate-400" />
-                <span>Закрыть окно просмотра</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-all border border-slate-700 cursor-pointer flex items-center gap-1.5 shadow-md"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                  <span>Закрыть</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 shadow-md shadow-blue-600/20"
+                >
+                  <Home className="w-4 h-4 text-amber-300" />
+                  <span>Вернуться на главную</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

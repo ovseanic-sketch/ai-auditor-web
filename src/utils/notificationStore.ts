@@ -48,8 +48,8 @@ export function createNotification(params: {
   recipientEmail?: string;
   title: string;
   message: string;
-  auditId: string;
-  type: "NEW_AUDIT_FOR_APPROVAL" | "AUDIT_APPROVED" | "REVISION_REQUESTED" | "REVISION_SUBMITTED";
+  auditId?: string;
+  type: "NEW_AUDIT_FOR_APPROVAL" | "AUDIT_APPROVED" | "REVISION_REQUESTED" | "REVISION_SUBMITTED" | "PASSWORD_RESET_REQUEST" | "AUDIT_DELETE_REQUEST";
   emailSubject?: string;
   emailBody?: string;
 }): AppNotification {
@@ -61,7 +61,7 @@ export function createNotification(params: {
     recipientEmail: params.recipientEmail || "manager@company.com",
     title: params.title,
     message: params.message,
-    auditId: params.auditId,
+    auditId: params.auditId || "",
     type: params.type,
     read: false,
     createdAt: new Date().toLocaleString("ru-RU", {

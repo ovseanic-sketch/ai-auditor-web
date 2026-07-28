@@ -5,12 +5,38 @@ export interface Dictionaries {
 }
 
 export const DEFAULT_DICTIONARIES: Dictionaries = {
-  brands: ["Orange", "Enter", "Darwin", "Ultra", "iStore"],
-  regions: ["Центральный регион", "Северный регион", "Южный регион", "Кишинев", "Бельцы"],
-  cities: ["Кишинев", "Бельцы", "Кагул", "Оргеев", "Комрат", "Унгены", "Тирасполь"],
+  brands: ["Orange", "Enter", "Darwin", "Ultra", "iStore", "Moldcell", "Bomba", "Maximum"],
+  regions: [
+    "Кишинёв",
+    "Северный регион (Бельцы)",
+    "Южный регион (Кагул)",
+    "Центральный регион (Орхей)",
+    "Гагаузия (Комрат)",
+    "Приднестровье (Тирасполь)",
+  ],
+  cities: [
+    "Кишинёв",
+    "Бельцы",
+    "Бендеры",
+    "Тирасполь",
+    "Кагул",
+    "Комрат",
+    "Орхей",
+    "Унгены",
+    "Сороки",
+    "Дубоссары",
+    "Чадыр-Лунга",
+    "Единец",
+    "Каушаны",
+    "Хынчешты",
+    "Фалешты",
+    "Рышканы",
+    "Дрокия",
+    "Окница",
+  ],
 };
 
-const STORAGE_KEY = "okk_dictionaries_v1";
+const STORAGE_KEY = "okk_dictionaries_v2";
 
 export function loadDictionaries(): Dictionaries {
   try {

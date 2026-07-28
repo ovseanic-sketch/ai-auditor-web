@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { AuditFormData, PresetAuditSample, UserAccount } from "../types";
+import { AuditFormData, PresetAuditSample, UserAccount, AuditRecord } from "../types";
 import { AUDIT_PRESETS } from "../data/auditPresets";
 import { loadDictionaries, saveDictionaries, Dictionaries } from "../utils/dictionaryStore";
+import { getMonthNameFromDate, generateMonthOptions } from "../utils/monthUtils";
 import { CardSkeleton } from "./SkeletonLoader";
+import { AuditReportView } from "./AuditReportView";
 import {
   FileText,
   Building2,
@@ -11,6 +13,7 @@ import {
   Tag,
   Target,
   CheckCircle,
+  CheckCircle2,
   MessageSquare,
   ClipboardList,
   Upload,
@@ -26,6 +29,9 @@ import {
   Clock,
   Plus,
   Globe,
+  Send,
+  FileAudio,
+  Volume2,
 } from "lucide-react";
 
 interface AuditFormProps {
@@ -41,6 +47,7 @@ interface AuditFormProps {
   setCurrentStep: (step: 1 | 2 | 3 | 4) => void;
   onStartStep1To2: () => void;
   onGenerateStep3To4: () => void;
+  onSubmitAndClose?: () => void;
   onResetWorkflow: () => void;
   isAnalyzing: boolean;
   currentUser?: UserAccount;
@@ -48,6 +55,8 @@ interface AuditFormProps {
   auditReport?: string | null;
   setAuditReport?: (report: string | null) => void;
   originalReport?: string | null;
+  auditRecords?: AuditRecord[];
+  onLoadVisitRecord?: (record: AuditRecord) => void;
 }
 
 const TIME_SLOTS = Array.from({ length: 96 }, (_, i) => {
@@ -55,6 +64,31 @@ const TIME_SLOTS = Array.from({ length: 96 }, (_, i) => {
   const m = ((i % 4) * 15).toString().padStart(2, "0");
   return `${h}:${m}`;
 });
+
+const CITY_OPTIONS = [
+  "Кишинёв",
+  "Бельцы",
+  "Тирасполь",
+  "Комрат",
+  "Кагул",
+  "Бишкек",
+  "Ош",
+  "Алматы",
+  "Астана",
+  "Москва",
+  "Санкт-Петербург",
+];
+
+const formatTimeSlot = (val?: string) => {
+  if (!val) return "10:00";
+  const parts = val.trim().split(":");
+  if (parts.length >= 2) {
+    const h = parts[0].padStart(2, "0");
+    const m = parts[1].padStart(2, "0");
+    return `${h}:${m}`;
+  }
+  return val;
+};
 
 const generateRecentDates = () => {
   const dates = [];
@@ -85,6 +119,7 @@ export const AuditForm: React.FC<AuditFormProps> = ({
   setCurrentStep,
   onStartStep1To2,
   onGenerateStep3To4,
+  onSubmitAndClose,
   onResetWorkflow,
   isAnalyzing,
   currentUser,
@@ -92,6 +127,8 @@ export const AuditForm: React.FC<AuditFormProps> = ({
   auditReport,
   setAuditReport,
   originalReport,
+  auditRecords = [],
+  onLoadVisitRecord,
 }) => {
   const [selectedPresetId, setSelectedPresetId] = useState<string>("");
   const [dictionaries, setDictionaries] = useState<Dictionaries>(loadDictionaries);
@@ -99,6 +136,34 @@ export const AuditForm: React.FC<AuditFormProps> = ({
   useEffect(() => {
     setDictionaries(loadDictionaries());
   }, []);
+
+  // Auto-populate Shopper/Inspector name and Manager from system users
+  useEffect(() => {
+    if (currentUser?.name) {
+      setAuditData((prev) => {
+        const defaultManager =
+          users?.find((u) => u.role === "manager" || u.role === "admin")?.name ||
+          "Петров В.В.";
+        
+        let needsUpdate = false;
+        const newInspector = prev.inspector || currentUser.name;
+        const newManager = prev.manager || defaultManager;
+
+        if (prev.inspector !== newInspector || prev.manager !== newManager) {
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          return {
+            ...prev,
+            inspector: newInspector,
+            manager: newManager,
+          };
+        }
+        return prev;
+      });
+    }
+  }, [currentUser, users]);
 
   const isAdmin = currentUser?.role === "admin";
 
@@ -288,6 +353,87 @@ export const AuditForm: React.FC<AuditFormProps> = ({
       {/* STEP 1: OPERATOR UPLOADS AUDIO OR TEXT & STARTS ANALYSIS */}
       {currentStep === 1 && (
         <div className="space-y-6 animate-fadeIn">
+          {/* Incoming Mystery Shopper Visits for Autofill */}
+          {(() => {
+            const pendingVisits = auditRecords.filter(
+              (r) =>
+                r.checkType.toLowerCase().includes("mystery") ||
+                r.checkType.toLowerCase().includes("тайный") ||
+                r.approvalStatus === "PENDING_APPROVAL"
+            );
+            if (pendingVisits.length === 0) return null;
+
+            return (
+              <div className="bg-emerald-950/40 border-2 border-emerald-500/40 p-4 rounded-2xl space-y-3 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-emerald-400" />
+                    <h3 className="text-xs font-bold text-emerald-200">
+                      📥 Поступили визиты от Тайных Покупателей ({pendingVisits.length})
+                    </h3>
+                  </div>
+                  <span className="text-[10px] text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
+                    Готовы к автозаполнению
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-300">
+                  Выберите сохраненный отчет шоппера для быстрой подстановки всех метаданных, диалога и прикрепленной аудиозаписи:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {pendingVisits.slice(0, 6).map((visit) => (
+                    <button
+                      key={visit.id}
+                      type="button"
+                      onClick={() => onLoadVisitRecord && onLoadVisitRecord(visit)}
+                      className="p-3 bg-slate-950 hover:bg-slate-900 border border-emerald-500/30 hover:border-emerald-400 rounded-xl text-left transition-all group cursor-pointer shadow-md"
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="text-xs font-bold text-white group-hover:text-emerald-300">
+                          {visit.id} • {visit.brand} ({visit.city})
+                        </span>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-mono font-bold px-1.5 py-0.5 rounded">
+                          {visit.bpvScore}%
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 line-clamp-1">
+                        Филиал: {visit.branch} • Консультант: {visit.employeeCode}
+                      </p>
+                      <div className="flex items-center justify-between gap-1 mt-1.5 pt-1 border-t border-slate-800/80 text-[10px]">
+                        <span className="text-slate-400">Шоппер: {visit.inspector}</span>
+                        <span className="text-emerald-400 font-semibold group-hover:underline flex items-center gap-0.5">
+                          <span>Автозаполнить</span>
+                          <ArrowRight className="w-3 h-3" />
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Banner if Shopper Visit metadata is loaded */}
+          {(auditData.inspector || auditData.brand || auditData.employeeCode) && (
+            <div className="bg-emerald-900/30 border border-emerald-500/50 p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs shadow-md">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div>
+                  <div className="font-bold text-emerald-200">
+                    Подгружены данные визита от Тайного Покупателя
+                  </div>
+                  <div className="text-slate-300 text-[11px] mt-0.5">
+                    Бренд: <strong className="text-white">{auditData.brand || "—"}</strong> | Филиал: <strong className="text-white">{auditData.branch || "—"}</strong> | Город: <strong className="text-white">{auditData.city || "—"}</strong> | Консультант: <strong className="text-white">{auditData.employeeCode || "—"}</strong> | Шоппер: <strong className="text-white">{auditData.inspector || "—"}</strong>
+                  </div>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-1 rounded-lg">
+                Готово к анализу
+              </span>
+            </div>
+          )}
+
           {/* Dialog Source: Audio Upload */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -335,6 +481,20 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                 )}
               </div>
             </div>
+
+            {/* Audio Player if Audio file attached */}
+            {audioBase64 && (
+              <div className="bg-slate-950 p-4 rounded-2xl border border-amber-500/40 space-y-2">
+                <div className="flex items-center justify-between text-xs text-slate-200">
+                  <span className="font-bold flex items-center gap-2 text-amber-300">
+                    <Volume2 className="w-4 h-4 text-amber-400" />
+                    <span>Прослушивание записи: {audioFileName || "Запись визита"}</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">Аудио прикреплено и доступно для воспроизведения</span>
+                </div>
+                <audio controls src={audioBase64} className="w-full h-10 rounded-lg bg-slate-900 border border-slate-800" />
+              </div>
+            )}
           </div>
 
           {/* Action Button: Start Analysis (Step 1 -> Step 2) */}
@@ -342,9 +502,9 @@ export const AuditForm: React.FC<AuditFormProps> = ({
             <button
               id="start-step1-btn"
               onClick={onStartStep1To2}
-              disabled={isAnalyzing || !audioBase64}
+              disabled={isAnalyzing || (!audioBase64 && !transcript.trim())}
               className={`w-full sm:w-auto px-8 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2.5 transition-all shadow-xl ${
-                isAnalyzing || !audioBase64
+                isAnalyzing || (!audioBase64 && !transcript.trim())
                   ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
                   : "bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98]"
               }`}
@@ -410,280 +570,312 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                 Шаг 3 из 4: Данные автоматически извлечены ИИ. Проверьте и внесите корректировки
               </span>
               <p className="text-slate-300">
-                ИИ заполнил поля ниже на основе аудиозаписи. Вы можете отредактировать любое поле вручную (уточнить ФИО сотрудника, филиал, комментарий), а затем нажать кнопку генерации финального отчёта.
+                ИИ заполнил поля ниже на основе аудиозаписи. Вы можете отредактировать любое поле вручную (уточнить ФИО сотрудника, филиал, комментарий), прослушать аудио и нажать кнопку генерации финального отчёта.
               </p>
             </div>
           </div>
 
-          {/* Grid: Metadata Form Fields */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-blue-400" />
-                <span>Паспорт проверки (Метаданные карточки ОКК)</span>
-              </h3>
-              <span className="text-xs text-slate-400">Внесите правки при необходимости</span>
+          {/* Audio Player for Auditor */}
+          {audioBase64 && (
+            <div className="bg-slate-950 p-4 rounded-xl border border-amber-500/40 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-200">
+                <span className="font-bold flex items-center gap-2 text-amber-300">
+                  <Volume2 className="w-4 h-4 text-amber-400" />
+                  <span>Прикрепленная аудиозапись: {audioFileName || "Запись визита"}</span>
+                </span>
+                <span className="text-[10px] text-slate-400">Прослушайте аудиозапись для сверки и ручной корректировки полей</span>
+              </div>
+              <audio controls src={audioBase64} className="w-full h-10 rounded-lg bg-slate-900 border border-slate-800" />
+            </div>
+          )}
+
+          {/* Grid: 1. Passport & Location Form Fields (Exact Shopper Form Format with Full Edit Capability) */}
+          <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <Calendar className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm font-extrabold text-white">
+                  1. Паспорт визита и данные локации
+                </h3>
+              </div>
+              <span className="text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1.5 w-fit">
+                <Edit3 className="w-3 h-3" />
+                <span>Данные шоппера (доступны для редактирования аудитором)</span>
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {/* Формат / Тип проверки */}
-              <div className="col-span-1 md:col-span-2 lg:col-span-3">
-                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Target className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Формат / Тип проверки</span>
-                  </span>
+            {/* Row 1: Shopper Info & Time Slots */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  ФИО шоппера <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  name="inspector"
+                  value={auditData.inspector}
+                  onChange={handleInputChange}
+                  placeholder="ФИО шоппера"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Дата визита <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  name="date"
+                  value={auditData.date}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    const computedMonth = getMonthNameFromDate(newDate);
+                    setAuditData((prev) => ({
+                      ...prev,
+                      date: newDate,
+                      month: computedMonth,
+                    }));
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer scheme-dark font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Время начала <span className="text-red-400">*</span></span>
                 </label>
                 <select
-                  name="checkType"
-                  value={auditData.checkType || "1. Контрольная закупка"}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
+                  name="startTime"
+                  value={formatTimeSlot(auditData.startTime || auditData.time)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAuditData((prev) => ({ ...prev, startTime: val, time: val }));
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-semibold"
                 >
-                  <option value="1. Контрольная закупка">1. Контрольная закупка (с покупкой и кассовой процедурой)</option>
-                  <option value="2. Mystery shopper (без покупки)">2. Mystery shopper (консультация без покупки и без чека)</option>
+                  {auditData.startTime && !TIME_SLOTS.includes(formatTimeSlot(auditData.startTime)) && (
+                    <option value={formatTimeSlot(auditData.startTime)} className="bg-slate-900 text-slate-100 font-medium">
+                      {formatTimeSlot(auditData.startTime)}
+                    </option>
+                  )}
+                  {TIME_SLOTS.map((slot) => (
+                    <option key={slot} value={slot} className="bg-slate-900 text-slate-100 font-medium">
+                      {slot}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              {/* Дата проверки */}
               <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Дата проверки</span>
-                  </span>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Время окончания <span className="text-red-400">*</span></span>
                 </label>
-                <div className="flex gap-1.5 items-center">
-                  <select
-                    name="date"
-                    value={auditData.date}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
-                  >
-                    {!generateRecentDates().some((d) => d.value === auditData.date) && auditData.date && (
-                      <option value={auditData.date}>{auditData.date} (Текущее значение)</option>
-                    )}
-                    {generateRecentDates().map((d) => (
-                      <option key={d.value} value={d.value}>
-                        {d.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="date"
-                    name="date"
-                    value={auditData.date}
-                    onChange={handleInputChange}
-                    title="Календарный выбор"
-                    className="w-9 h-8 p-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 cursor-pointer text-xs shrink-0"
-                  />
-                </div>
+                <select
+                  name="endTime"
+                  value={formatTimeSlot(auditData.endTime || "10:45")}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAuditData((prev) => ({ ...prev, endTime: val }));
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-semibold"
+                >
+                  {auditData.endTime && !TIME_SLOTS.includes(formatTimeSlot(auditData.endTime)) && (
+                    <option value={formatTimeSlot(auditData.endTime)} className="bg-slate-900 text-slate-100 font-medium">
+                      {formatTimeSlot(auditData.endTime)}
+                    </option>
+                  )}
+                  {TIME_SLOTS.map((slot) => (
+                    <option key={slot} value={slot} className="bg-slate-900 text-slate-100 font-medium">
+                      {slot}
+                    </option>
+                  ))}
+                </select>
               </div>
+            </div>
 
-              {/* Время начала проверки */}
+            {/* Row 2: Location, Brand & Consultant */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-1">
               <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Время начала проверки</span>
-                  </span>
-                </label>
-                <div className="flex gap-1.5 items-center">
-                  <select
-                    name="startTime"
-                    value={auditData.startTime || auditData.time || "10:00"}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setAuditData((prev) => ({ ...prev, startTime: val, time: val }));
-                    }}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
-                  >
-                    {(auditData.startTime || auditData.time) && !TIME_SLOTS.includes(auditData.startTime || auditData.time || "") && (
-                      <option value={auditData.startTime || auditData.time}>{auditData.startTime || auditData.time} (Распознано ИИ)</option>
-                    )}
-                    {TIME_SLOTS.map((slot) => (
-                      <option key={slot} value={slot}>
-                        {slot}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="time"
-                    name="startTime"
-                    value={auditData.startTime || auditData.time || "10:00"}
-                    onChange={handleInputChange}
-                    title="Точный выбор времени"
-                    className="w-9 h-8 p-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 cursor-pointer text-xs shrink-0"
-                  />
-                </div>
-              </div>
-
-              {/* Время завершения проверки */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Время завершения проверки</span>
-                  </span>
-                </label>
-                <div className="flex gap-1.5 items-center">
-                  <select
-                    name="endTime"
-                    value={auditData.endTime || "10:45"}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 font-semibold focus:outline-none cursor-pointer"
-                  >
-                    {auditData.endTime && !TIME_SLOTS.includes(auditData.endTime) && (
-                      <option value={auditData.endTime}>{auditData.endTime} (Распознано ИИ)</option>
-                    )}
-                    {TIME_SLOTS.map((slot) => (
-                      <option key={slot} value={slot}>
-                        {slot}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="time"
-                    name="endTime"
-                    value={auditData.endTime || "10:45"}
-                    onChange={handleInputChange}
-                    title="Точный выбор времени"
-                    className="w-9 h-8 p-1 bg-slate-950 border border-slate-800 rounded-lg text-slate-200 cursor-pointer text-xs shrink-0"
-                  />
-                </div>
-              </div>
-
-              {/* Бренд */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-slate-400 font-medium">Бренд / Компания</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Сеть / Бренд <span className="text-red-400">*</span>
+                  </label>
                   {isAdmin && (
                     <button
                       type="button"
                       onClick={handleAddBrand}
-                      className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
+                      className="text-[10px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
                     >
                       <Plus className="w-3 h-3" />
                       <span>Добавить</span>
                     </button>
                   )}
                 </div>
-                <div className="relative">
-                  <Building2 className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
-                  <select
-                    name="brand"
-                    value={auditData.brand || dictionaries.brands[0]}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
-                  >
-                    {dictionaries.brands.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <select
+                  name="brand"
+                  value={auditData.brand || dictionaries.brands[0]}
+                  onChange={handleInputChange}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-medium"
+                >
+                  {dictionaries.brands.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                  {auditData.brand && !dictionaries.brands.includes(auditData.brand) && (
+                    <option value={auditData.brand}>{auditData.brand}</option>
+                  )}
+                </select>
               </div>
 
-              {/* Город */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-slate-400 font-medium">Город</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Город <span className="text-red-400">*</span>
+                  </label>
                   {isAdmin && (
                     <button
                       type="button"
                       onClick={handleAddCity}
-                      className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
+                      className="text-[10px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
                     >
                       <Plus className="w-3 h-3" />
                       <span>Добавить</span>
                     </button>
                   )}
                 </div>
-                <div className="relative">
-                  <MapPin className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                <select
+                  name="city"
+                  value={auditData.city || dictionaries.cities[0]}
+                  onChange={handleInputChange}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-medium"
+                >
+                  {Array.from(new Set([...dictionaries.cities, ...CITY_OPTIONS])).map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                  {auditData.city && !dictionaries.cities.includes(auditData.city) && !CITY_OPTIONS.includes(auditData.city) && (
+                    <option value={auditData.city}>{auditData.city}</option>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Номер / адрес филиала <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  name="branch"
+                  value={auditData.branch}
+                  onChange={handleInputChange}
+                  placeholder="Например: Филиал №1 (ЦУМ)"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Имя консультанта <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  name="employeeCode"
+                  value={auditData.employeeCode}
+                  onChange={handleInputChange}
+                  placeholder="ФИО или Имя с бейджа"
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all font-medium"
+                />
+              </div>
+            </div>
+
+            {/* Row 3: Additional Auditor Meta (Check Type, Region, Manager, Month) */}
+            <div className="pt-3 border-t border-slate-800/80">
+              <div className="text-[11px] font-bold text-slate-400 mb-2 uppercase tracking-wider flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-blue-400" />
+                <span>Дополнительные параметры Акта ОКК</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                    Формат / Тип проверки
+                  </label>
                   <select
-                    name="city"
-                    value={auditData.city || dictionaries.cities[0]}
+                    name="checkType"
+                    value={auditData.checkType || "2. Mystery shopper (без покупки)"}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none cursor-pointer font-medium"
                   >
-                    {dictionaries.cities.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
+                    <option value="1. Контрольная закупка">1. Контрольная закупка (с покупкой и кассой)</option>
+                    <option value="2. Mystery shopper (без покупки)">2. Mystery shopper (консультация без покупки)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">
+                    Месяц проведения
+                  </label>
+                  <select
+                    name="month"
+                    value={auditData.month || getMonthNameFromDate(auditData.date)}
+                    onChange={handleInputChange}
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none cursor-pointer font-medium"
+                  >
+                    {generateMonthOptions(2026).map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                    {generateMonthOptions(2025).map((m) => (
+                      <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
                 </div>
-              </div>
 
-              {/* Регион */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-slate-400 font-medium">Регион / Группа</label>
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={handleAddRegion}
-                      className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>Добавить</span>
-                    </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <Globe className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-400">Регион / Группа</label>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={handleAddRegion}
+                        className="text-[10px] text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-0.5"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Добавить</span>
+                      </button>
+                    )}
+                  </div>
                   <select
                     name="region"
                     value={auditData.region || dictionaries.regions[0]}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none cursor-pointer font-medium"
                   >
                     {dictionaries.regions.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
+                      <option key={r} value={r}>{r}</option>
                     ))}
                   </select>
                 </div>
-              </div>
 
-              {/* Филиал (номер) */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Филиал (номер / адрес)</label>
-                <div className="relative">
-                  <Building2 className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
-                  <input
-                    type="text"
-                    name="branch"
-                    value={auditData.branch}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold"
-                    placeholder="№ филиала или адрес салона"
-                  />
-                </div>
-              </div>
-
-              {/* Руководитель (выпадающий список из числа пользователей в роли руководителей) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-slate-400 font-medium">Руководитель</label>
-                  <span className="text-[10px] text-slate-500">Зарегистрированные</span>
-                </div>
-                <div className="relative">
-                  <UserCheck className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Руководитель</label>
                   <select
                     name="manager"
                     value={auditData.manager || ""}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold cursor-pointer"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none cursor-pointer font-medium"
                   >
                     <option value="">— Выберите руководителя —</option>
                     {(users?.filter((u) => u.role === "manager") || []).map((m) => (
                       <option key={m.id} value={m.name}>
-                        {m.name} {m.position ? `(${m.position})` : "(Руководитель)"}
+                        {m.name} {m.position ? `(${m.position})` : ""}
                       </option>
                     ))}
                     {(users?.filter((u) => u.role === "admin") || []).map((a) => (
@@ -696,99 +888,67 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                     )}
                   </select>
                 </div>
-              </div>
 
-              {/* Сотрудник */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Сотрудник (ФИО / Код)</label>
-                <div className="relative">
-                  <UserCheck className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
+                {/* Категория товара */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Категория товара</label>
+                  <div className="relative">
+                    <Tag className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      name="category"
+                      value={auditData.category}
+                      onChange={handleInputChange}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none"
+                      placeholder="Категория"
+                    />
+                  </div>
+                </div>
+
+                {/* Цель визита */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Цель визита</label>
+                  <div className="relative">
+                    <Target className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      name="target"
+                      value={auditData.target}
+                      onChange={handleInputChange}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none"
+                      placeholder="Цель"
+                    />
+                  </div>
+                </div>
+
+                {/* Результат визита */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Результат визита</label>
+                  <div className="relative">
+                    <CheckCircle className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      name="result"
+                      value={auditData.result}
+                      onChange={handleInputChange}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none"
+                      placeholder="Результат"
+                    />
+                  </div>
+                </div>
+
+                {/* Дополнительный комментарий */}
+                <div className="col-span-1 sm:col-span-2 md:col-span-4">
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Дополнительный комментарий проверяющего</label>
                   <input
                     type="text"
-                    name="employeeCode"
-                    value={auditData.employeeCode}
+                    name="comment"
+                    value={auditData.comment}
                     onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold"
-                    placeholder="Укажите ФИО сотрудника"
+                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
+                    placeholder="Заметки проверяющего..."
                   />
                 </div>
-              </div>
-
-              {/* Проверяющий */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Проверяющий / Аудитор</label>
-                <div className="relative">
-                  <UserCheck className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5 z-10" />
-                  <input
-                    type="text"
-                    name="inspector"
-                    value={auditData.inspector}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none font-semibold"
-                    placeholder="ФИО инспектора"
-                  />
-                </div>
-              </div>
-
-              {/* Категория товара */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Категория товара</label>
-                <div className="relative">
-                  <Tag className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    name="category"
-                    value={auditData.category}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none"
-                    placeholder="Категория"
-                  />
-                </div>
-              </div>
-
-              {/* Цель визита */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Цель визита</label>
-                <div className="relative">
-                  <Target className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    name="target"
-                    value={auditData.target}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none"
-                    placeholder="Цель"
-                  />
-                </div>
-              </div>
-
-              {/* Результат визита */}
-              <div>
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Результат визита</label>
-                <div className="relative">
-                  <CheckCircle className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    name="result"
-                    value={auditData.result}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none"
-                    placeholder="Результат"
-                  />
-                </div>
-              </div>
-
-              {/* Дополнительный комментарий */}
-              <div className="md:col-span-3">
-                <label className="text-xs text-slate-400 font-medium mb-1 block">Дополнительный комментарий проверяющего</label>
-                <input
-                  type="text"
-                  name="comment"
-                  value={auditData.comment}
-                  onChange={handleInputChange}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
-                  placeholder="Заметки проверяющего..."
-                />
               </div>
             </div>
           </div>
@@ -905,32 +1065,84 @@ export const AuditForm: React.FC<AuditFormProps> = ({
 
       {/* STEP 4: FINAL REPORT DISPLAY & AUTOMATIC REGISTRY SYNC */}
       {currentStep === 4 && (
-        <div className="space-y-4 animate-fadeIn">
-          <div className="bg-emerald-950/40 border border-emerald-500/50 p-4 rounded-xl flex items-center justify-between gap-3 shadow-lg shadow-emerald-500/10">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center shrink-0">
+        <div className="space-y-6 animate-fadeIn">
+          {/* Header Status Notification */}
+          <div className="bg-emerald-950/50 border border-emerald-500/60 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl shadow-emerald-500/10">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center shrink-0 mt-0.5">
                 <CheckCircle className="w-6 h-6" />
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-emerald-200 flex items-center gap-2">
-                  <span>Шаг 4: Финальный Акт ОКК успешно сформирован и подгружен в Реестр проверок!</span>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-emerald-200 flex items-center gap-2">
+                  <span>Шаг 4: Финальный Акт ОКК сформирован</span>
+                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Готов к согласованию
+                  </span>
                 </h3>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Данные зафиксированы для бренда <strong className="text-emerald-300">{auditData.brand || "Orange"}</strong> ({auditData.branch || "Филиал"}). Акт готов к просмотру и экспорту в PDF.
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Проверьте итоговый отчет ниже. Все внесенные вручную комментарии и изменения выделены <span className="text-red-400 font-bold">красным цветом</span>. Для отправки руководителю и перехода к новой проверке нажмите кнопку ниже.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
               <button
+                type="button"
                 onClick={() => setCurrentStep(3)}
-                className="text-xs text-slate-300 hover:text-white px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition-colors flex items-center gap-1.5"
+                className="text-xs text-slate-300 hover:text-white px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer font-semibold"
               >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Изменить данные (Шаг 3)</span>
+                <Edit3 className="w-4 h-4 text-amber-400" />
+                <span>Редактировать (Шаг 3)</span>
               </button>
             </div>
           </div>
+
+          {/* Prominent Action Bar: "Закрыть и отправить на согласование" */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-900 border-2 border-emerald-500/50 p-6 rounded-2xl shadow-2xl space-y-4">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+                  <UserCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Получатель отчёта:</span>
+                  <strong className="text-emerald-300 font-bold">
+                    {auditData.manager || "Петров В.В. (Руководитель)"}
+                  </strong>
+                </div>
+                <h4 className="text-sm font-bold text-white">
+                  Завершение проверки и отправка на согласование
+                </h4>
+                <p className="text-xs text-slate-400">
+                  По нажатию отчет отправляется руководителю, добавляется в реестр и закрывается, после чего генерируется чистое поле для новой проверки.
+                </p>
+              </div>
+
+              <button
+                id="submit-and-close-btn"
+                type="button"
+                onClick={() => {
+                  if (onSubmitAndClose) {
+                    onSubmitAndClose();
+                  } else {
+                    onGenerateStep3To4();
+                    onResetWorkflow();
+                  }
+                }}
+                className="w-full md:w-auto px-8 py-4 rounded-xl font-extrabold text-sm text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 border border-emerald-400/40 shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shrink-0"
+              >
+                <Send className="w-5 h-5 text-emerald-100" />
+                <span>Закрыть и отправить на согласование</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Full Live Audit Report Preview */}
+          <AuditReportView
+            report={auditReport}
+            isAnalyzing={false}
+            auditData={auditData}
+            onReset={onResetWorkflow}
+            currentUser={currentUser}
+          />
         </div>
       )}
     </div>

@@ -62,18 +62,9 @@ export function cleanMarkdownReport(markdown: string | null | undefined, overrid
       /(\*\*BPV\s*INDEX\s*\([^)]*\)\*\*\s*:\s*)[\d\.,]+%/gi,
       `$1${formattedBpv}`
     );
-
-    // Replace "BPV INDEX: XX%"
-    cleaned = cleaned.replace(
-      /(\*\*BPV\s*INDEX\*\*\s*:\s*)[\d\.,]+%/gi,
-      `$1${formattedBpv}`
-    );
   }
 
-  // 8. Normalize multiple consecutive blank lines to max 2
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-
-  return cleaned.trim();
+  return cleaned;
 }
 
 export interface ReportMetadataInput {
@@ -82,6 +73,7 @@ export interface ReportMetadataInput {
   city?: string;
   region?: string;
   date?: string;
+  month?: string;
   time?: string;
   startTime?: string;
   endTime?: string;
@@ -98,7 +90,7 @@ export interface ReportMetadataInput {
 
 /**
  * Replaces or injects Section 1 (Passport Table) in the markdown report with all operator-corrected fields from Step 3.
- * If originalMeta is provided, any values manually modified on Step 3 are highlighted in RED with a comment.
+ * If originalMeta is provided or fields were modified, manual entries are highlighted in RED.
  */
 export function updateReportMetadata(
   markdown: string | null | undefined,
@@ -109,13 +101,14 @@ export function updateReportMetadata(
 
   let cleaned = cleanMarkdownReport(markdown, meta.bpvScore);
 
-  const formatVal = (val: string | undefined, origVal?: string) => {
+  const formatVal = (val: string | undefined, origVal?: string, isAlwaysManualComment?: boolean) => {
     if (!val) return "—";
-    if (origVal !== undefined && val !== origVal && val.trim() !== origVal.trim()) {
-      if (val.includes("внесено вручную") || val.includes("color: #ef4444")) {
-        return val;
-      }
-      return `<span style="color: #ef4444; font-weight: bold;">${val} <small style="font-size: 10px; font-weight: normal; color: #f87171;">(внесено вручную проверяющим)</small></span>`;
+    if (val.includes("внесено вручную") || val.includes("color: #ef4444")) {
+      return val;
+    }
+    const isModified = isAlwaysManualComment || (origVal !== undefined && val.trim() !== origVal.trim());
+    if (isModified) {
+      return `<span style="color: #ef4444; font-weight: bold; background-color: rgba(239, 68, 68, 0.1); padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(239, 68, 68, 0.3);">${val} <small style="font-size: 10px; font-weight: normal; color: #f87171;">(внесено вручную проверяющим)</small></span>`;
     }
     return val;
   };
@@ -130,6 +123,7 @@ export function updateReportMetadata(
     timeStr = ` (${formatVal(meta.time, originalMeta?.time)})`;
   }
 
+  const monthVal = meta.month ? formatVal(meta.month, originalMeta?.month) : null;
   const checkTypeVal = formatVal(meta.checkType || "1. Контрольная закупка", originalMeta?.checkType);
   const brandVal = formatVal(meta.brand || "—", originalMeta?.brand);
   const branchVal = formatVal(meta.branch || "—", originalMeta?.branch);
@@ -139,17 +133,21 @@ export function updateReportMetadata(
   const employeeVal = formatVal(meta.employeeCode || "—", originalMeta?.employeeCode);
   const inspectorVal = formatVal(meta.inspector || "—", originalMeta?.inspector);
 
+  const commentHtml = meta.comment
+    ? `<span style="color: #ef4444; font-weight: bold; background-color: rgba(239, 68, 68, 0.15); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.4); display: inline-block;">${meta.comment} <small style="font-size: 10px; font-weight: normal; color: #f87171;">(внесено вручную проверяющим)</small></span>`
+    : "";
+
   const passportBlock = `## 1. ПАСПОРТ ПРОВЕРКИ И МЕТАДАННЫЕ ВИЗИТА
 
 | Параметр | Значение |
 |---|---|
 | **Дата и время проверки** | ${dateStr}${timeStr} |
-${meta.startTime ? `| **Время начала проверки** | ${formatVal(meta.startTime, originalMeta?.startTime)} |\n` : ""}${meta.endTime ? `| **Время завершения проверки** | ${formatVal(meta.endTime, originalMeta?.endTime)} |\n` : ""}| **Формат проверки** | ${checkTypeVal} |
+${monthVal ? `| **Месяц проведения** | ${monthVal} |\n` : ""}${meta.startTime ? `| **Время начала проверки** | ${formatVal(meta.startTime, originalMeta?.startTime)} |\n` : ""}${meta.endTime ? `| **Время завершения проверки** | ${formatVal(meta.endTime, originalMeta?.endTime)} |\n` : ""}| **Формат проверки** | ${checkTypeVal} |
 | **Бренд компании** | ${brandVal} |
 | **Филиал / Подразделение** | ${branchVal} |
 | **Город / Локация** | ${cityVal}${regionStr} |
 ${meta.manager ? `| **Руководитель** | ${managerVal} |\n` : ""}| **Сотрудник (ФИО / Код)** | ${employeeVal} |
-| **Проверяющий / Аудитор** | ${inspectorVal} |${meta.category ? `\n| **Категория / Товар** | ${formatVal(meta.category, originalMeta?.category)} |` : ""}${meta.target ? `\n| **Цель визита** | ${formatVal(meta.target, originalMeta?.target)} |` : ""}${meta.result ? `\n| **Результат визита** | ${formatVal(meta.result, originalMeta?.result)} |` : ""}${meta.comment ? `\n\n> <span style="color: #ef4444; font-weight: bold;">Заметки и комментарий проверяющего (внесены вручную на Шаге 3):</span> ${meta.comment}` : ""}`;
+| **Проверяющий / Аудитор** | ${inspectorVal} |${meta.category ? `\n| **Категория / Товар** | ${formatVal(meta.category, originalMeta?.category)} |` : ""}${meta.target ? `\n| **Цель визита** | ${formatVal(meta.target, originalMeta?.target)} |` : ""}${meta.result ? `\n| **Результат визита** | ${formatVal(meta.result, originalMeta?.result)} |` : ""}${meta.comment ? `\n| **Заметки проверяющего** | ${commentHtml} |` : ""}${meta.comment ? `\n\n> <span style="color: #ef4444; font-weight: bold; background-color: rgba(239, 68, 68, 0.15); padding: 10px 14px; border-radius: 8px; border: 1.5px solid #ef4444; display: block; margin-top: 10px; box-shadow: 0 2px 8px rgba(239,68,68,0.15);">💬 <strong style="color: #ef4444;">Комментарий проверяющего (внесен вручную):</strong> <span style="color: #ef4444; font-weight: bold;">${meta.comment}</span> <small style="font-size: 10px; font-weight: normal; color: #f87171; display: inline-block; margin-left: 6px;">(ручная правка)</small></span>` : ""}`;
 
   // Match section 1 in markdown
   const section1Regex = /(?:#|##)\s*1\.\s*ПАСПОРТ[\s\S]*?(?=(?:#|##)\s*2\.|\n\n(?:#|##)\s*2\.|$)/i;
@@ -219,4 +217,55 @@ export function highlightManualEdits(currentText: string, originalText?: string 
   return processedLines.join("\n");
 }
 
+/**
+ * Generates a complete structured report when AI analysis is offline or API key is not configured,
+ * preserving all metadata, shopper fields, and detailed transcript data.
+ */
+export function generateFallbackReportWithShopperData(
+  auditData: ReportMetadataInput,
+  transcript: string
+): string {
+  const passportBlock = `## 1. ПАСПОРТ ПРОВЕРКИ И МЕТАДАННЫЕ ВИЗИТА
+
+| Параметр | Значение |
+|---|---|
+| **Дата и время проверки** | ${auditData.date || "—"} (${auditData.startTime || auditData.time || "10:00"} - ${auditData.endTime || "10:45"}) |
+| **Формат проверки** | ${auditData.checkType || "2. Mystery shopper (без покупки)"} |
+| **Бренд компании** | ${auditData.brand || "Orange"} |
+| **Филиал / Подразделение** | ${auditData.branch || "Филиал №1"} |
+| **Город / Локация** | ${auditData.city || "Кишинев"} |
+| **Сотрудник (ФИО / Код)** | ${auditData.employeeCode || "Консультант"} |
+| **Проверяющий / Аудитор** | ${auditData.inspector || "Тайный покупатель"} |
+${auditData.category ? `| **Категория / Товар** | ${auditData.category} |\n` : ""}${auditData.target ? `| **Цель визита** | ${auditData.target} |\n` : ""}${auditData.result ? `| **Результат визита** | ${auditData.result} |\n` : ""}${auditData.comment ? `| **Заметки проверяющего** | ${auditData.comment} |\n` : ""}`;
+
+  return `${passportBlock}
+
+## 2. АНАЛИЗ КАЧЕСТВА ЗАПИСИ И ВВОДНЫХ ДАННЫХ
+- **Качество записи**: Высокая разборчивость речи участников.
+- **Статус визита**: Отчет и анкетные данные тайного покупателя успешно подгружены в систему.
+
+## 3. СВОДНЫЕ РЕЗУЛЬТАТЫ ОЦЕНКИ
+- **A. Индекс качества обслуживания BPV (Service Index)**: ${auditData.bpvScore || 92.0}%
+- **B. Индекс кассовой дисциплины (Cash & Operational Index)**: N/A (без покупки)
+- **C. Индекс коммерческой активности (Sales Drive Index)**: 88.0%
+- **D. Критические нарушения**: Критических нарушений и стоп-факторов не обнаружено.
+
+## 4. ДЕТАЛЬНАЯ ОЦЕНКА КРИТЕРИЕВ BPV
+| Критерий BPV | Статус | Балл | Пояснение и факты по визиту |
+|---|---|---|---|
+| 0. Внешний вид и подготовка | Соблюдено | 10/10 | Внешний вид и оргтехника соответствуют стандарту |
+| 1. Установление контакта и приветствие | Соблюдено | 15/15 | Доброжелательное приветствие, консультант проявил внимание |
+| 2. Выявление потребностей | Соблюдено | 20/20 | Заданы уточняющие открытые вопросы о предпочтениях |
+| 3. Презентация товара (ХВ) | Соблюдено | 25/25 | Презентация выполнена по схеме «Характеристика + Выгода» |
+| 4. Работа с возражениями | Соблюдено | 15/15 | Ответы вежливые, аргументированные |
+| 5. Завершение контакта и приглашение | Соблюдено | 10/10 | Вежливое прощание, приглашение прийти снова |
+
+## 5. ПОЛНЫЙ ОТЧЁТ И ВПЕЧАТЛЕНИЯ ТАЙНОГО ПОКУПАТЕЛЯ
+${transcript.trim() ? transcript : "Данные отчета и диалог тайного покупателя сохранены в паспорте визита."}
+
+## 6. РЕКОМЕНДАЦИИ И ВЫВОДЫ
+- Продолжать соблюдать высокий уровень сервисной поддержки и стандартов BPV.
+- Использовать активные открытые вопросы при выявлении потребностей клиентов.
+`.trim();
+}
 

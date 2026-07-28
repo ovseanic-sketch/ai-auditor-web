@@ -23,11 +23,13 @@ import {
   RotateCcw,
   FileCheck,
   MessageSquare,
+  Eye,
 } from "lucide-react";
-import { AuditFormData, ApprovalStatus, ApprovalHistoryItem } from "../types";
+import { AuditFormData, ApprovalStatus, ApprovalHistoryItem, UserAccount } from "../types";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
 import { cleanMarkdownReport } from "../utils/cleanMarkdown";
 import { CardSkeleton } from "./SkeletonLoader";
+import { PdfReportModal } from "./PdfReportModal";
 
 export interface AuditReportData extends Partial<AuditFormData> {
   id?: string;
@@ -44,6 +46,7 @@ interface AuditReportViewProps {
   isAnalyzing: boolean;
   auditData?: AuditReportData;
   onReset?: () => void;
+  currentUser?: UserAccount;
 }
 
 export const AuditReportView: React.FC<AuditReportViewProps> = ({
@@ -51,8 +54,12 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
   isAnalyzing,
   auditData,
   onReset,
+  currentUser,
 }) => {
   const [copiedReport, setCopiedReport] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
+
+  const isShopper = currentUser?.role === "shopper";
 
   if (isAnalyzing) {
     return (
@@ -63,7 +70,7 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
             <Sparkles className="w-5 h-5 text-blue-400 absolute inset-0 m-auto animate-pulse" />
           </div>
           <h3 className="text-base font-bold text-slate-100">
-            ИИ-Агент Аудитор анализирует визит...
+            AI Mystery Auditor анализирует визит...
           </h3>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
             Проверяем качество записи, разделяем реплики, оцениваем только применимые критерии BPV, накладываем цитаты с таймкодами, анализируем голос консультанта и формируем сводную строку таблицы.
@@ -214,15 +221,29 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-          <button
-            id="export-pdf-btn"
-            onClick={handleExportPdf}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
-            title="Сформировать печатную версию или PDF-файл отчета"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Скачать PDF / Печать</span>
-          </button>
+          {!isShopper && (
+            <>
+              <button
+                id="open-pdf-btn"
+                onClick={() => setShowPdfModal(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+                title="Открыть и просмотреть PDF-отчёт в системе без скачивания"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Открыть отчет PDF</span>
+              </button>
+
+              <button
+                id="export-pdf-btn"
+                onClick={handleExportPdf}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                title="Сформировать печатную версию или PDF-файл отчета"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Скачать PDF / Печать</span>
+              </button>
+            </>
+          )}
 
           <button
             id="copy-report-btn"
@@ -256,133 +277,135 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
       </div>
 
       {/* Visual Infographic Panel for Section 3 */}
-      <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <PieChart className="w-5 h-5 text-blue-400" />
-            <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wide">
-              3. СВОДНЫЕ РЕЗУЛЬТАТЫ ОЦЕНКИ (ИНФОГРАФИКА И КЛЮЧЕВЫЕ ИНДЕКСЫ)
-            </h3>
-          </div>
-          <span className="text-[11px] text-slate-400 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 font-mono">
-            Трехиндексная система ОКК
-          </span>
-        </div>
-
-        {/* 3 Main Metric KPI Infographics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* BPV Service Index */}
-          <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-slate-400 font-semibold">A. Индекс качества обслуживания BPV (Service Index)</span>
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+      {!isShopper && (
+        <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <PieChart className="w-5 h-5 text-blue-400" />
+              <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wide">
+                3. СВОДНЫЕ РЕЗУЛЬТАТЫ ОЦЕНКИ (ИНФОГРАФИКА И КЛЮЧЕВЫЕ ИНДЕКСЫ)
+              </h3>
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-emerald-400">{bpvScore}%</span>
-              <span className="text-[10px] text-slate-400">Стандарт BPV</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
-              <div
-                className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(bpvScore, 100)}%` }}
-              />
-            </div>
+            <span className="text-[11px] text-slate-400 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800 font-mono">
+              Трехиндексная система ОКК
+            </span>
           </div>
 
-          {/* Speech Index */}
-          <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-slate-400 font-semibold">B. Речевой индекс</span>
-              <Mic className="w-4 h-4 text-cyan-400" />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-cyan-400">
-                {speechScore}
-              </span>
-              <span className="text-[10px] text-slate-400">
-                Качество диалога и скриптов
-              </span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
-              <div
-                className="bg-cyan-500 h-full rounded-full transition-all duration-500"
-                style={{ width: speechScore }}
-              />
-            </div>
-          </div>
-
-          {/* Sales Drive Index */}
-          <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-slate-400 font-semibold">C. Индекс коммерческой активности (Sales Drive Index)</span>
-              <TrendingUp className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-amber-400">{salesScore}%</span>
-              <span className="text-[10px] text-slate-400">Коммерческая активность</span>
-            </div>
-            <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
-              <div
-                className="bg-amber-500 h-full rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(salesScore, 100)}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Critical Violations & Stop Factors Card */}
-        <div
-          className={`p-4 rounded-xl border transition-all ${
-            hasCriticalViolations
-              ? "bg-red-950/40 border-red-500/50 text-red-200"
-              : "bg-emerald-950/30 border-emerald-500/30 text-emerald-200"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            {hasCriticalViolations ? (
-              <AlertOctagon className="w-6 h-6 text-red-400 shrink-0 mt-0.5 animate-pulse" />
-            ) : (
-              <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
-            )}
-            <div className="space-y-2 w-full">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
-                  <span>Блок Критических Нарушений и Стоп-Факторов</span>
-                  {hasCriticalViolations ? (
-                    <span className="bg-red-500/20 text-red-300 border border-red-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
-                      Внимание: Нарушения обнаружены
-                    </span>
-                  ) : (
-                    <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
-                      Стоп-факторы отсутствуют (0)
-                    </span>
-                  )}
-                </h4>
+          {/* 3 Main Metric KPI Infographics */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* BPV Service Index */}
+            <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400 font-semibold">A. Индекс качества обслуживания BPV (Service Index)</span>
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
               </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-400">{bpvScore}%</span>
+                <span className="text-[10px] text-slate-400">Стандарт BPV</span>
+              </div>
+              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(bpvScore, 100)}%` }}
+                />
+              </div>
+            </div>
 
+            {/* Speech Index */}
+            <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400 font-semibold">B. Речевой индекс</span>
+                <Mic className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-cyan-400">
+                  {speechScore}
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  Качество диалога и скриптов
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
+                <div
+                  className="bg-cyan-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: speechScore }}
+                />
+              </div>
+            </div>
+
+            {/* Sales Drive Index */}
+            <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-400 font-semibold">C. Индекс коммерческой активности (Sales Drive Index)</span>
+                <TrendingUp className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-amber-400">{salesScore}%</span>
+                <span className="text-[10px] text-slate-400">Коммерческая активность</span>
+              </div>
+              <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
+                <div
+                  className="bg-amber-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(salesScore, 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Critical Violations & Stop Factors Card */}
+          <div
+            className={`p-4 rounded-xl border transition-all ${
+              hasCriticalViolations
+                ? "bg-red-950/40 border-red-500/50 text-red-200"
+                : "bg-emerald-950/30 border-emerald-500/30 text-emerald-200"
+            }`}
+          >
+            <div className="flex items-start gap-3">
               {hasCriticalViolations ? (
-                <div className="space-y-2 pt-1">
-                  <p className="text-xs font-semibold text-red-300">
-                    При проведении аудита зафиксированы следующие конкретные критические нарушения:
-                  </p>
-                  <div className="bg-slate-950/80 p-3 rounded-lg border border-red-500/30 text-xs text-slate-200 space-y-1.5 font-mono">
-                    {extractedViolationsList.map((item, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-red-300">
-                        <span className="text-red-400 font-bold">•</span>
-                        <span>{item}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <AlertOctagon className="w-6 h-6 text-red-400 shrink-0 mt-0.5 animate-pulse" />
               ) : (
-                <p className="text-xs text-emerald-300/90 leading-relaxed">
-                  Критически нерегламентных действий, грубых нарушений кассовой дисциплины и стоп-факторов не зафиксировано. Все обязательные базовые правила выполнены.
-                </p>
+                <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
               )}
+              <div className="space-y-2 w-full">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                    <span>Блок Критических Нарушений и Стоп-Факторов</span>
+                    {hasCriticalViolations ? (
+                      <span className="bg-red-500/20 text-red-300 border border-red-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
+                        Внимание: Нарушения обнаружены
+                      </span>
+                    ) : (
+                      <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded text-[10px] font-bold">
+                        Стоп-факторы отсутствуют (0)
+                      </span>
+                    )}
+                  </h4>
+                </div>
+
+                {hasCriticalViolations ? (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs font-semibold text-red-300">
+                      При проведении аудита зафиксированы следующие конкретные критические нарушения:
+                    </p>
+                    <div className="bg-slate-950/80 p-3 rounded-lg border border-red-500/30 text-xs text-slate-200 space-y-1.5 font-mono">
+                      {extractedViolationsList.map((item, idx) => (
+                        <div key={idx} className="flex items-start gap-2 text-red-300">
+                          <span className="text-red-400 font-bold">•</span>
+                          <span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-emerald-300/90 leading-relaxed">
+                    Критически нерегламентных действий, грубых нарушений кассовой дисциплины и стоп-факторов не зафиксировано. Все обязательные базовые правила выполнены.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Main Formatted Markdown Content Container */}
       <div className="bg-slate-950/80 rounded-xl border border-slate-800 p-6 text-slate-200 text-xs sm:text-sm leading-relaxed overflow-x-auto font-sans">
@@ -436,9 +459,11 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
             )}
           </div>
 
-          <div className="text-xs text-slate-300 font-medium">
-            Текущая оценка BPV: <span className="font-bold text-amber-400">{bpvScore}%</span>
-          </div>
+          {!isShopper && (
+            <div className="text-xs text-slate-300 font-medium">
+              Текущая оценка BPV: <span className="font-bold text-amber-400">{bpvScore}%</span>
+            </div>
+          )}
         </div>
 
         {/* Manager Comment / Protest Card */}
@@ -502,6 +527,24 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* PDF Report In-App Preview Modal */}
+      <PdfReportModal
+        isOpen={showPdfModal}
+        onClose={() => setShowPdfModal(false)}
+        reportContent={cleanedReport}
+        metadata={{
+          brand: auditData?.brand,
+          branch: auditData?.branch,
+          city: auditData?.city,
+          date: auditData?.date,
+          time: auditData?.time,
+          checkType: auditData?.checkType,
+          employeeCode: auditData?.employeeCode,
+          inspector: auditData?.inspector,
+          bpvScore: bpvScore,
+        }}
+      />
     </div>
   );
 };

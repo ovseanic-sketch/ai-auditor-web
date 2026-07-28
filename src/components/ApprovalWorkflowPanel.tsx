@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { AuditRecord, UserAccount, ApprovalStatus } from "../types";
 import { createNotification } from "../utils/notificationStore";
+import { AudioPlayerWidget } from "./AudioPlayerWidget";
 import {
   CheckCircle,
   AlertCircle,
@@ -314,11 +315,18 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
         </div>
 
         {/* Current Score Pill */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-right">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-right shrink-0">
           <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Оценка BPV</div>
           <div className="text-lg font-black text-amber-400">{record.bpvScore}%</div>
         </div>
       </div>
+
+      {/* AUDIO RECORDING PLAYER */}
+      <AudioPlayerWidget
+        audioUrl={record.audioUrl}
+        audioFileName={record.audioFileName}
+        auditId={record.id}
+      />
 
       {/* SECTION: MANAGER ACTIONS (When PENDING_APPROVAL or FINALIZED) */}
       {isManagerOrAdmin && (currentStatus === "PENDING_APPROVAL" || currentStatus === "FINALIZED") && (

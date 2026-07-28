@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { getMonthNameFromDate } from "../utils/monthUtils";
 import {
   ResponsiveContainer,
   BarChart,
@@ -58,6 +59,7 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 98,
     salesDriveScore: 100,
     stopFactors: 0,
+    approvalStatus: "APPROVED",
     reportSummary: "Идеальное выполнение стандартов BPV, безупречный диалог с клиентом и эффективный Cross-sell сопутствующих товаров.",
   },
   {
@@ -75,7 +77,8 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 85,
     salesDriveScore: 25.0,
     stopFactors: 0,
-    reportSummary: "Высокое качество презентации и работы с сомнениями. Пропуск инициативного Cross-sell аксессуаров до оплаты.",
+    approvalStatus: "APPROVED_WITH_COMMENTS",
+    reportSummary: "Высокое качество презентации и работы с возражениями. Пропуск инициативного Cross-sell аксессуаров до оплаты.",
   },
   {
     id: "AUD-2026-003",
@@ -92,15 +95,16 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 92,
     salesDriveScore: 100,
     stopFactors: 0,
+    approvalStatus: "APPROVED",
     reportSummary: "Отличный диалоговый баланс, подробная презентация характеристик товара и предложение сервисных пакетов.",
   },
   {
     id: "AUD-2026-004",
     date: "23.07.2026",
-    brand: "ТехноМир Pro",
-    branch: "ТЦ Центральный, 1 эт.",
-    city: "Москва",
-    group: "Северный филиал",
+    brand: "Enter",
+    branch: "Центр (бул. Штефан чел Маре, 136)",
+    city: "Кишинёв",
+    group: "Центральный регион",
     checkType: "2. Mystery shopper (без покупки)",
     employeeCode: "Иванов Алексей",
     inspector: "MS-007 (Елена К.)",
@@ -109,15 +113,16 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 96,
     salesDriveScore: 80.0,
     stopFactors: 0,
+    approvalStatus: "FINALIZED",
     reportSummary: "Экспертная консультация без покупки. Сотрудник отлично отработал воронку вопросов и выявил скрытые задачи.",
   },
   {
     id: "AUD-2026-005",
     date: "19.07.2026",
-    brand: "ТехноМир Pro",
-    branch: "Филиал Северный",
+    brand: "Darwin",
+    branch: "Бельцы (ул. Штефан чел Маре, 57)",
     city: "Бельцы",
-    group: "Северный филиал",
+    group: "Северный регион",
     checkType: "2. Mystery shopper (без покупки)",
     employeeCode: "Петров Михаил",
     inspector: "MS-012",
@@ -126,6 +131,7 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 74,
     salesDriveScore: 50.0,
     stopFactors: 1,
+    approvalStatus: "REVISION_REQUESTED",
     reportSummary: "Зафиксировано использование закрытых вопросов и отсутствие выявления потребностей в начале разговора.",
   },
   {
@@ -143,6 +149,7 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 90,
     salesDriveScore: 85.0,
     stopFactors: 0,
+    approvalStatus: "APPROVED",
     reportSummary: "Высокая культура обслуживания, грамотная речевая аналитика и соблюдение порядка заполнения документов.",
   },
 ];
@@ -158,6 +165,7 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>("ALL");
   const [selectedManagerFilter, setSelectedManagerFilter] = useState<string>("ALL");
   const [selectedCityFilter, setSelectedCityFilter] = useState<string>("ALL");
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>("ALL");
   const [selectedCheckTypeFilter, setSelectedCheckTypeFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
@@ -171,6 +179,10 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
   const [speechFilter, setSpeechFilter] = useState<string>("ALL"); // "ALL" | "PASS" | "FAIL"
   const [salesDriveFilter, setSalesDriveFilter] = useState<string>("ALL"); // "ALL" | "PASS" | "FAIL"
   const [stopFactorsFilter, setStopFactorsFilter] = useState<string>("ALL"); // "ALL" | "NONE" | "HAS_STOP"
+
+  // Stop factors modal state
+  const [isStopFactorsModalOpen, setIsStopFactorsModalOpen] = useState(false);
+  const [selectedStopAudit, setSelectedStopAudit] = useState<AuditRecord | null>(null);
 
   // Date parser helper
   const parseDateString = (dateStr: string): Date | null => {
@@ -202,14 +214,29 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
     return isNaN(d.getTime()) ? null : d;
   };
 
-  // Base user-accessible audits (If user is a manager, restrict strictly to their brand)
-  const userAccessibleAudits = recentAudits.filter((a) => isAuditBelongsToManager(a, currentUser));
+  // Base user-accessible audits:
+  // REQUIREMENT: In dashboards, ONLY data of audits that passed the full approval cycle must be displayed!
+  // (Passed full approval cycle = approvalStatus is "APPROVED", "APPROVED_WITH_COMMENTS", or "FINALIZED")
+  const userAccessibleAudits = recentAudits.filter((a) => {
+    const isApproved =
+      a.approvalStatus === "APPROVED" ||
+      a.approvalStatus === "APPROVED_WITH_COMMENTS" ||
+      a.approvalStatus === "FINALIZED";
+    return isApproved && isAuditBelongsToManager(a, currentUser);
+  });
 
   // Get unique filter values from accessible audits
   const uniqueBrands = Array.from(new Set(userAccessibleAudits.map((a) => a.brand).filter(Boolean)));
   const uniqueRegions = Array.from(new Set(userAccessibleAudits.map((a) => a.group || (a as any).region).filter(Boolean)));
   const uniqueManagers = Array.from(new Set(userAccessibleAudits.map((a) => a.manager).filter(Boolean)));
   const uniqueCities = Array.from(new Set(userAccessibleAudits.map((a) => a.city).filter(Boolean)));
+  const uniqueMonths = Array.from(
+    new Set(
+      userAccessibleAudits
+        .map((a) => a.month || getMonthNameFromDate(a.date))
+        .filter(Boolean)
+    )
+  );
 
   // Filtered audits list
   const filteredAudits = userAccessibleAudits.filter((item) => {
@@ -217,6 +244,8 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
     const matchesRegion = selectedRegionFilter === "ALL" || (item.group || (item as any).region) === selectedRegionFilter;
     const matchesManager = selectedManagerFilter === "ALL" || item.manager === selectedManagerFilter;
     const matchesCity = selectedCityFilter === "ALL" || item.city === selectedCityFilter;
+    const itemMonth = item.month || getMonthNameFromDate(item.date);
+    const matchesMonth = selectedMonthFilter === "ALL" || itemMonth === selectedMonthFilter;
     
     // Check type matching flexible
     let matchesCheckType = true;
@@ -279,19 +308,19 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
     // Metrics filtering
     let matchesMetrics = true;
 
-    if (bpvFilter === "PASS" && item.bpvScore < 85) matchesMetrics = false;
-    if (bpvFilter === "FAIL" && item.bpvScore >= 85) matchesMetrics = false;
+    if (bpvFilter === "PASS" && item.bpvScore < 90) matchesMetrics = false;
+    if (bpvFilter === "FAIL" && item.bpvScore >= 90) matchesMetrics = false;
 
-    if (speechFilter === "PASS" && (item.speechScore ?? 90) < 85) matchesMetrics = false;
-    if (speechFilter === "FAIL" && (item.speechScore ?? 90) >= 85) matchesMetrics = false;
+    if (speechFilter === "PASS" && (item.speechScore ?? 90) < 90) matchesMetrics = false;
+    if (speechFilter === "FAIL" && (item.speechScore ?? 90) >= 90) matchesMetrics = false;
 
-    if (salesDriveFilter === "PASS" && item.salesDriveScore < 70) matchesMetrics = false;
-    if (salesDriveFilter === "FAIL" && item.salesDriveScore >= 70) matchesMetrics = false;
+    if (salesDriveFilter === "PASS" && item.salesDriveScore < 90) matchesMetrics = false;
+    if (salesDriveFilter === "FAIL" && item.salesDriveScore >= 90) matchesMetrics = false;
 
     if (stopFactorsFilter === "NONE" && item.stopFactors > 0) matchesMetrics = false;
     if (stopFactorsFilter === "HAS_STOP" && item.stopFactors === 0) matchesMetrics = false;
 
-    return matchesBrand && matchesRegion && matchesManager && matchesCity && matchesCheckType && matchesSearch && matchesDate && matchesMetrics;
+    return matchesBrand && matchesRegion && matchesManager && matchesCity && matchesMonth && matchesCheckType && matchesSearch && matchesDate && matchesMetrics;
   });
 
   // Calculate Average Metrics
@@ -318,16 +347,20 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
     "Sales Drive (Продажи)": a.salesDriveScore,
   }));
 
-  // Funnel Standards Compliance
+  // Funnel Standards Compliance (Calculated dynamically; returns 0% when no audits exist)
+  const baseBpvScore = totalAudits > 0 ? Number(avgBpv) : 0;
   const standardsBreakdownData = [
-    { stage: "1. Контакт", score: 94 },
-    { stage: "2. Потребности", score: 88 },
-    { stage: "3. Презентация", score: 91 },
-    { stage: "4. Сомнения", score: 86 },
-    { stage: "5. Диалог/Скрипт", score: 92 },
-    { stage: "6. Cross-sell", score: 72 },
-    { stage: "7. Завершение", score: 95 },
-  ];
+    { stage: "1. Контакт", weight: 1.02 },
+    { stage: "2. Потребности", weight: 0.96 },
+    { stage: "3. Презентация", weight: 0.99 },
+    { stage: "4. Возражения", weight: 0.94 },
+    { stage: "5. Диалог/Скрипт", weight: 1.00 },
+    { stage: "6. Cross-sell", weight: 0.82 },
+    { stage: "7. Завершение", weight: 1.03 },
+  ].map((st) => ({
+    stage: st.stage,
+    score: totalAudits === 0 ? 0 : Math.min(100, Math.max(0, Math.round(baseBpvScore * st.weight))),
+  }));
 
   const handleExportQuickPdf = (item: AuditRecord) => {
     exportAuditReportToPdf({
@@ -347,11 +380,14 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
               <span className="bg-blue-500/10 text-blue-400 text-xs font-bold px-2.5 py-1 rounded-md border border-blue-500/20 uppercase tracking-wider">
                 Панель аналитики ОКК
               </span>
-              <span className="text-slate-500 text-xs">Статистика проверок в реальном времени</span>
+              <span className="bg-emerald-500/10 text-emerald-400 text-xs font-semibold px-2.5 py-1 rounded-md border border-emerald-500/20 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Отображаются только полностью утвержденные анкеты
+              </span>
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
               Сводный дашборд стандартов BPV и Контрольных Закупок
@@ -426,6 +462,18 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
               ))}
             </select>
 
+            {/* Month Filter */}
+            <select
+              value={selectedMonthFilter}
+              onChange={(e) => setSelectedMonthFilter(e.target.value)}
+              className="bg-slate-950 border border-indigo-500/30 text-indigo-200 text-xs rounded-xl px-3 py-1.5 focus:outline-none focus:border-indigo-500 font-semibold"
+            >
+              <option value="ALL">Все месяцы</option>
+              {uniqueMonths.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+
             {/* Check Type Filter */}
             <select
               value={selectedCheckTypeFilter}
@@ -497,8 +545,8 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
               className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
             >
               <option value="ALL">BPV Index: Все</option>
-              <option value="PASS">BPV ≥ 85% (Высокий)</option>
-              <option value="FAIL">BPV &lt; 85% (Низкий)</option>
+              <option value="PASS">BPV ≥ 90% (Высокий)</option>
+              <option value="FAIL">BPV &lt; 90% (Низкий)</option>
             </select>
 
             {/* Speech Filter */}
@@ -508,8 +556,8 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
               className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
             >
               <option value="ALL">Речевой индекс: Все</option>
-              <option value="PASS">Речевой ≥ 85% (Высокий)</option>
-              <option value="FAIL">Речевой &lt; 85% (Низкий)</option>
+              <option value="PASS">Речевой ≥ 90% (Высокий)</option>
+              <option value="FAIL">Речевой &lt; 90% (Низкий)</option>
             </select>
 
             {/* Sales Drive Filter */}
@@ -519,8 +567,8 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
               className="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
             >
               <option value="ALL">Sales Drive: Все</option>
-              <option value="PASS">Sales Drive ≥ 70%</option>
-              <option value="FAIL">Sales Drive &lt; 70%</option>
+              <option value="PASS">Sales Drive ≥ 90%</option>
+              <option value="FAIL">Sales Drive &lt; 90%</option>
             </select>
 
             {/* Stop Factors Filter */}
@@ -551,8 +599,8 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-white">{avgBpv}%</span>
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${Number(avgBpv) >= 85 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400"}`}>
-              Цель ≥85%
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${Number(avgBpv) >= 90 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-amber-500/10 text-amber-400"}`}>
+              Цель ≥90%
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-2">Средняя соблюдаемость стандартов продаж</p>
@@ -571,7 +619,7 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-cyan-400">{avgSpeech}%</span>
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-              Цель ≥85%
+              Цель ≥90%
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-2">Качество диалога, скриптов и речи</p>
@@ -589,20 +637,24 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-white">{avgSalesDrive}%</span>
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${Number(avgSalesDrive) >= 70 ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
-              Цель ≥70%
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${Number(avgSalesDrive) >= 90 ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-400 border border-amber-500/20"}`}>
+              Цель ≥90%
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-2">Допродажи (Cross-sell) и услуги</p>
         </div>
 
         {/* Metric 4: Stop Factors */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 relative overflow-hidden group hover:border-red-500/40 transition-all">
+        <div
+          onClick={() => setIsStopFactorsModalOpen(true)}
+          className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 relative overflow-hidden group hover:border-red-500/60 transition-all cursor-pointer shadow-lg hover:shadow-red-950/20"
+          title="Нажмите, чтобы посмотреть подробности по зафиксированным стоп-факторам"
+        >
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
               Стоп-факторы
             </span>
-            <div className="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
+            <div className="w-9 h-9 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 group-hover:scale-110 transition-transform">
               <AlertTriangle className="w-5 h-5" />
             </div>
           </div>
@@ -610,11 +662,16 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
             <span className={`text-3xl font-extrabold ${totalStopFactors === 0 ? "text-slate-200" : "text-red-400"}`}>
               {totalStopFactors}
             </span>
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${totalStopFactors === 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${totalStopFactors === 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400 animate-pulse"}`}>
               {totalStopFactors === 0 ? "Нарушений нет" : "Требует внимания"}
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-2">Критически нерегламентные действия</p>
+          <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-800/60">
+            <p className="text-[11px] text-slate-500">Критически нерегламентные действия</p>
+            <span className="text-[11px] text-red-400 font-semibold underline flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
+              Детали ➔
+            </span>
+          </div>
         </div>
       </div>
 
@@ -719,13 +776,13 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
             <div key={i} className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center space-y-2">
               <span className="text-[11px] font-semibold text-slate-400 block truncate">{st.stage}</span>
               <div className="relative inline-flex items-center justify-center">
-                <span className={`text-lg font-black ${st.score >= 85 ? "text-emerald-400" : st.score >= 70 ? "text-amber-400" : "text-red-400"}`}>
+                <span className={`text-lg font-black ${st.score >= 90 ? "text-emerald-400" : st.score >= 80 ? "text-amber-400" : "text-red-400"}`}>
                   {st.score}%
                 </span>
               </div>
               <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${st.score >= 85 ? "bg-emerald-500" : st.score >= 70 ? "bg-amber-500" : "bg-red-500"}`}
+                  className={`h-full rounded-full ${st.score >= 90 ? "bg-emerald-500" : st.score >= 80 ? "bg-amber-500" : "bg-red-500"}`}
                   style={{ width: `${st.score}%` }}
                 ></div>
               </div>
@@ -762,6 +819,7 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
                   <th className="py-3 px-3 text-center">BPV Index</th>
                   <th className="py-3 px-3 text-center">Речевой индекс</th>
                   <th className="py-3 px-3 text-center">Sales Drive</th>
+                  <th className="py-3 px-3 text-center">Стоп-факторы</th>
                   <th className="py-3 px-3 text-right">Экспорт</th>
                 </tr>
               </thead>
@@ -799,21 +857,37 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
                     </td>
 
                     <td className="py-3 px-3 text-center font-bold">
-                      <span className={item.bpvScore >= 85 ? "text-emerald-400" : "text-amber-400"}>
+                      <span className={item.bpvScore >= 90 ? "text-emerald-400" : "text-amber-400"}>
                         {item.bpvScore}%
                       </span>
                     </td>
 
                     <td className="py-3 px-3 text-center font-bold">
-                      <span className={(item.speechScore ?? 90) >= 85 ? "text-emerald-400" : "text-amber-400"}>
+                      <span className={(item.speechScore ?? 90) >= 90 ? "text-emerald-400" : "text-amber-400"}>
                         {item.speechScore ?? 90}%
                       </span>
                     </td>
 
                     <td className="py-3 px-3 text-center font-bold">
-                      <span className={item.salesDriveScore >= 70 ? "text-emerald-400" : "text-amber-400"}>
+                      <span className={item.salesDriveScore >= 90 ? "text-emerald-400" : "text-amber-400"}>
                         {item.salesDriveScore}%
                       </span>
+                    </td>
+
+                    <td className="py-3 px-3 text-center">
+                      {item.stopFactors > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStopAudit(item)}
+                          className="inline-flex items-center gap-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/40 px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all shadow-xs"
+                          title="Нажмите, чтобы посмотреть подробное описание стоп-факторов"
+                        >
+                          <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
+                          <span>{item.stopFactors}</span>
+                        </button>
+                      ) : (
+                        <span className="text-slate-600 text-[11px] font-mono">0</span>
+                      )}
                     </td>
 
                     <td className="py-3 px-3 text-right">
@@ -833,6 +907,173 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
           </div>
         )}
       </div>
+
+      {/* Modal for Stop-Factors breakdown */}
+      {(isStopFactorsModalOpen || selectedStopAudit) && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-red-500/10 rounded-xl border border-red-500/20 text-red-400">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    {selectedStopAudit
+                      ? `Стоп-факторы проверки ${selectedStopAudit.id}`
+                      : "Зафиксированные стоп-факторы и критические нарушения"}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {selectedStopAudit
+                      ? `${selectedStopAudit.brand} • ${selectedStopAudit.branch} • Сотрудник: ${selectedStopAudit.employeeCode}`
+                      : `Всего выявлено стоп-факторов: ${totalStopFactors}`}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsStopFactorsModalOpen(false);
+                  setSelectedStopAudit(null);
+                }}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {selectedStopAudit ? (
+              /* Single audit detail view */
+              <div className="space-y-4 text-xs">
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-sm">{selectedStopAudit.branch}</span>
+                    <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-300 font-bold border border-red-500/30">
+                      Стоп-факторы: {selectedStopAudit.stopFactors}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-slate-400 pt-1">
+                    <div>
+                      <span className="text-slate-500">Компания/Бренд:</span>{" "}
+                      <span className="text-slate-200 font-medium">{selectedStopAudit.brand} ({selectedStopAudit.city})</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Дата проверки:</span>{" "}
+                      <span className="text-slate-200 font-medium">{selectedStopAudit.date}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Сотрудник:</span>{" "}
+                      <span className="text-slate-200 font-medium">{selectedStopAudit.employeeCode}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Аудитор:</span>{" "}
+                      <span className="text-slate-200 font-medium">{selectedStopAudit.inspector}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-red-950/30 border border-red-500/30 p-4 rounded-xl space-y-2">
+                  <h4 className="font-bold text-red-300 flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-red-400" />
+                    <span>Описание нерегламентного нарушения / заключения</span>
+                  </h4>
+                  <p className="text-slate-300 leading-relaxed text-xs">
+                    {selectedStopAudit.reportSummary || "Нарушение регламента обслуживания или правил BPV зафиксировано проверяющим."}
+                  </p>
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStopAudit(null)}
+                    className="text-blue-400 hover:text-blue-300 underline font-medium cursor-pointer"
+                  >
+                    ← Ко всем стоп-факторам
+                  </button>
+
+                  <div className="flex gap-2">
+                    {onSelectAuditForView && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectAuditForView(selectedStopAudit);
+                          setSelectedStopAudit(null);
+                          setIsStopFactorsModalOpen(false);
+                        }}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl cursor-pointer transition-all"
+                      >
+                        Открыть полный акт
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedStopAudit(null);
+                        setIsStopFactorsModalOpen(false);
+                      }}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl cursor-pointer"
+                    >
+                      Закрыть
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* List of all stop factors */
+              <div className="space-y-3">
+                {userAccessibleAudits.filter((a) => a.stopFactors > 0).length === 0 ? (
+                  <div className="text-center py-8 bg-emerald-950/20 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs space-y-1">
+                    <ShieldCheck className="w-8 h-8 text-emerald-400 mx-auto" />
+                    <p className="font-bold">Критически нерегламентных нарушений не зафиксировано (0 стоп-факторов)</p>
+                    <p className="text-slate-400">Все проведенные проверки прошли без стоп-факторов.</p>
+                  </div>
+                ) : (
+                  userAccessibleAudits
+                    .filter((a) => a.stopFactors > 0)
+                    .map((audit) => (
+                      <div
+                        key={audit.id}
+                        onClick={() => setSelectedStopAudit(audit)}
+                        className="bg-slate-950 hover:bg-slate-800/60 border border-red-500/30 rounded-xl p-3.5 space-y-2 cursor-pointer transition-all group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-slate-400 font-bold">{audit.id}</span>
+                            <span className="text-slate-200 font-semibold">{audit.branch}</span>
+                            <span className="text-slate-500 text-[11px]">({audit.date})</span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-md bg-red-500/20 text-red-300 text-[10px] font-bold border border-red-500/40">
+                            {audit.stopFactors} стоп-фактор(а)
+                          </span>
+                        </div>
+
+                        <div className="text-xs text-slate-300 flex items-center justify-between">
+                          <span>Сотрудник: <strong className="text-white">{audit.employeeCode}</strong></span>
+                          <span className="text-blue-400 group-hover:underline font-medium">Подробнее ➔</span>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400 line-clamp-2 bg-slate-900/60 p-2 rounded-lg border border-slate-800">
+                          {audit.reportSummary || "Зафиксировано нерегламентное действие."}
+                        </p>
+                      </div>
+                    ))
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsStopFactorsModalOpen(false)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl cursor-pointer"
+                  >
+                    Закрыть
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
