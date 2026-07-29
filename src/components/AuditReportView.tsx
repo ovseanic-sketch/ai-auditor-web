@@ -24,8 +24,10 @@ import {
   FileCheck,
   MessageSquare,
   Eye,
+  Shirt,
+  UserCheck,
 } from "lucide-react";
-import { AuditFormData, ApprovalStatus, ApprovalHistoryItem, UserAccount } from "../types";
+import { AuditFormData, ApprovalStatus, ApprovalHistoryItem, UserAccount, InspectorEditHistoryItem } from "../types";
 import { exportAuditReportToPdf } from "../utils/pdfExport";
 import { cleanMarkdownReport } from "../utils/cleanMarkdown";
 import { CardSkeleton } from "./SkeletonLoader";
@@ -39,6 +41,11 @@ export interface AuditReportData extends Partial<AuditFormData> {
   auditorRevisionComment?: string;
   approvedAt?: string;
   approvedBy?: string;
+  inspectorEdits?: InspectorEditHistoryItem[];
+  audioFileName?: string;
+  cashScore?: number;
+  salesDriveScore?: number;
+  stopFactors?: number;
 }
 
 interface AuditReportViewProps {
@@ -196,6 +203,12 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
       category: auditData?.category || "",
       target: auditData?.target || "",
       reportContent: cleanedReport,
+      shopperData: auditData?.shopperData,
+      disputedPoints: auditData?.disputedPoints,
+      inspectorEdits: auditData?.inspectorEdits,
+      managerComment: auditData?.managerComment,
+      bpvScore,
+      salesDriveScore: salesScore,
     });
   };
 
@@ -311,24 +324,24 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
               </div>
             </div>
 
-            {/* Speech Index */}
+            {/* Cash & Operational Index */}
             <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 flex flex-col justify-between shadow-sm">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-400 font-semibold">B. Речевой индекс</span>
+                <span className="text-xs text-slate-400 font-semibold">B. Индекс кассовой дисциплины (Cash Index)</span>
                 <Mic className="w-4 h-4 text-cyan-400" />
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-cyan-400">
-                  {speechScore}
+                  {isMysteryShopper ? "N/A" : `${bpvScore}%`}
                 </span>
                 <span className="text-[10px] text-slate-400">
-                  Качество диалога и скриптов
+                  {isMysteryShopper ? "Без физической покупки (N/A)" : "Оформление кассы, 1С и чека"}
                 </span>
               </div>
               <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
                 <div
                   className="bg-cyan-500 h-full rounded-full transition-all duration-500"
-                  style={{ width: speechScore }}
+                  style={{ width: isMysteryShopper ? "0%" : `${Math.min(bpvScore, 100)}%` }}
                 />
               </div>
             </div>
@@ -407,6 +420,145 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
         </div>
       )}
 
+      {/* DEDICATED SECTION: ДАННЫЕ И ВПЕЧАТЛЕНИЯ ТАЙНОГО ПОКУПАТЕЛЯ */}
+      <div className="bg-slate-950 p-5 rounded-2xl border border-emerald-500/30 space-y-4 shadow-xl">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <Eye className="w-5 h-5 text-emerald-400" />
+            <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wide">
+              ДАННЫЕ И ВПЕЧАТЛЕНИЯ ТАЙНОГО ПОКУПАТЕЛЯ
+            </h3>
+          </div>
+          <span className="text-[10px] text-emerald-300 bg-emerald-500/20 px-2.5 py-1 rounded-lg border border-emerald-500/30 font-bold uppercase">
+            Первичные визуальные наблюдения
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          {/* А. Наблюдаемые данные */}
+          <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-3">
+            <div className="font-bold text-emerald-300 flex items-center gap-2 border-b border-slate-800 pb-2">
+              <Shirt className="w-4 h-4 text-emerald-400" />
+              <span>А. Наблюдаемые данные</span>
+            </div>
+
+            <div className="space-y-2 text-slate-300 text-[11px]">
+              <div>
+                <strong className="text-slate-200">• Внешний вид консультанта:</strong>{" "}
+                {auditData?.shopperData ? (
+                  <span>
+                    Униформа: {auditData.shopperData.uniformStatus === "standard" ? "Стандартная фирменная" : "Есть нарушения"}, Бейдж: {auditData.shopperData.badgeStatus === "present" ? "Присутствует" : "Отсутствует"}, Опрятность: {auditData.shopperData.neatnessStatus === "neat" ? "Опрятный внешний вид" : "Замечания к опрятности"}.
+                    {auditData.shopperData.appearanceComment && ` (${auditData.shopperData.appearanceComment})`}
+                  </span>
+                ) : (
+                  <span>Фирменная униформа, чистый опрятный вид, бейдж на груди.</span>
+                )}
+              </div>
+
+              <div>
+                <strong className="text-slate-200">• Доступность консультанта:</strong>{" "}
+                {auditData?.shopperData ? (
+                  <span>
+                    {auditData.shopperData.staffAvailability === "immediate" ? "Сразу доступен в зале" : auditData.shopperData.staffAvailability === "had_to_search" ? "Пришлось искать сотрудника" : "Сотрудник отсутствовал"}.{" "}
+                    Кучкование: {auditData.shopperData.noGroupingStatus === "dispersed" ? "Рассредоточены" : "Замечено кучкование/телефоны"}.
+                  </span>
+                ) : (
+                  <span>Консультант визуально доступен в зале, кучкование отсутствовало.</span>
+                )}
+              </div>
+
+              <div>
+                <strong className="text-slate-200">• Состояние магазина и витрин:</strong>{" "}
+                {auditData?.shopperData ? (
+                  <span>
+                    Чистота: {auditData.shopperData.cleanlinessRating}/5, Выкладка: {auditData.shopperData.merchandisingRating}/5, Ассортимент: {auditData.shopperData.assortmentRating}/5.
+                    {auditData.shopperData.storeComment && ` (${auditData.shopperData.storeComment})`}
+                  </span>
+                ) : (
+                  <span>Торговый зал и витрины чистые, ценники на местах, порядок соблюден.</span>
+                )}
+              </div>
+
+              <div>
+                <strong className="text-slate-200">• Порядок в зале и работа команды:</strong>{" "}
+                {auditData?.shopperData ? (
+                  <span>
+                    {auditData.shopperData.hallCleanlinessStatus === "clean" ? "Чисто, отсутствие лишних предметов" : "Есть замечания к порядку в зале"}.
+                    {auditData.shopperData.hallComment && ` (${auditData.shopperData.hallComment})`}
+                  </span>
+                ) : (
+                  <span>Атмосфера доброжелательная, в зале поддерживается чистота.</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Б. Впечатление шоппера & В. Приложенные материалы */}
+          <div className="space-y-4">
+            <div className="bg-slate-900/80 p-4 rounded-xl border border-slate-800 space-y-3">
+              <div className="font-bold text-amber-300 flex items-center gap-2 border-b border-slate-800 pb-2">
+                <MessageSquare className="w-4 h-4 text-amber-400" />
+                <span>Б. Впечатление шоппера (Субъективная оценка)</span>
+              </div>
+
+              <div className="space-y-2 text-[11px] text-slate-300">
+                <div>
+                  <span className="text-emerald-400 font-bold">👍 Что понравилось:</span>{" "}
+                  <span>{auditData?.shopperData?.whatLiked || auditData?.comment || "Вежливое и доброжелательное общение, хорошая презентация."}</span>
+                </div>
+                <div>
+                  <span className="text-red-400 font-bold">👎 Что не понравилось:</span>{" "}
+                  <span>{auditData?.shopperData?.whatDisliked || "Существенных недостатков шоппером не отмечено."}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 italic bg-slate-950 p-2 rounded border border-slate-800">
+                  ⚠️ Примечание: Субъективные впечатления шоппера отображаются как мнение. Для подтверждения нарушения BPV требуется зафиксированный факт, цитата из аудио или решение инспектора.
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2.5">
+                <Mic className="w-4 h-4 text-blue-400" />
+                <div>
+                  <div className="font-bold text-slate-200 text-[11px]">
+                    В. Приложенные материалы: {auditData?.shopperData?.audioFileName || auditData?.audioFileName || "Запись визита"}
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Статус записи: <span className="text-emerald-400 font-semibold">Успешно прикреплено и проанализировано</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* DISPUTED POINTS / ТРЕБУЕТ ПРОВЕРКИ BLOCK IF CONTRADICTIONS EXIST */}
+      {auditData?.disputedPoints && auditData.disputedPoints.length > 0 && (
+        <div className="bg-amber-950/40 p-4 rounded-2xl border-2 border-amber-500/60 space-y-3 shadow-xl">
+          <div className="flex items-center gap-2 text-amber-300 font-bold text-xs uppercase tracking-wide">
+            <AlertOctagon className="w-5 h-5 text-amber-400 animate-pulse" />
+            <span>ТРЕБУЕТ ПРОВЕРКИ СУПЕРВИЗОРА / ОБНАРУЖЕНЫ ПРОТИВОРЕЧИЯ ({auditData.disputedPoints.length})</span>
+          </div>
+          <div className="space-y-2">
+            {auditData.disputedPoints.map((item, idx) => (
+              <div key={idx} className="bg-slate-950 p-3 rounded-xl border border-amber-500/40 text-xs space-y-1">
+                <div className="font-bold text-slate-200">{item.criterionName}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300 pt-1">
+                  <div className="bg-slate-900 p-2 rounded border border-slate-800">
+                    <strong className="text-amber-400">Анкета шоппера:</strong> {item.shopperInput}
+                  </div>
+                  <div className="bg-slate-900 p-2 rounded border border-slate-800">
+                    <strong className="text-blue-400">Аудиоанализ ИИ:</strong> {item.audioInput}
+                  </div>
+                </div>
+                {item.note && <div className="text-[10px] text-amber-300/90 italic pt-0.5">«{item.note}»</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Main Formatted Markdown Content Container */}
       <div className="bg-slate-950/80 rounded-xl border border-slate-800 p-6 text-slate-200 text-xs sm:text-sm leading-relaxed overflow-x-auto font-sans">
         <div className="markdown-report-body space-y-4">
@@ -437,7 +589,7 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Утвержден ({auditData?.approvedBy || auditData?.manager || "Руководитель"})
               </span>
             )}
-            {auditData?.approvalStatus === "APPROVED_WITH_COMMENTS" && (
+            {auditData?.approvalStatus === "APPROVED_WITH_COMMENT" && (
               <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
                 <MessageSquare className="w-3.5 h-3.5 text-amber-400" /> Утвержден с замечаниями ({auditData?.approvedBy || auditData?.manager || "Руководитель"})
               </span>
@@ -447,7 +599,7 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
                 <RotateCcw className="w-3.5 h-3.5 text-amber-400 animate-spin-slow" /> Подан протест / На пересмотре у проверяющего
               </span>
             )}
-            {auditData?.approvalStatus === "FINALIZED" && (
+            {(auditData?.approvalStatus === "FINALIZED_NO_SCORE_CHANGE" || auditData?.approvalStatus === "FINALIZED_WITH_SCORE_CHANGE") && (
               <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1.5">
                 <FileCheck className="w-3.5 h-3.5 text-blue-400" /> Финализирован аудитором после протеста
               </span>
@@ -543,9 +695,14 @@ export const AuditReportView: React.FC<AuditReportViewProps> = ({
           employeeCode: auditData?.employeeCode,
           inspector: auditData?.inspector,
           bpvScore: bpvScore,
+          cashScore:
+            auditData?.checkType?.toLowerCase().includes("mystery")
+              ? "N/A"
+              : auditData?.cashScore,
+          salesDriveScore: auditData?.salesDriveScore,
+          criticalViolationsCount: auditData?.stopFactors,
         }}
       />
     </div>
   );
 };
-

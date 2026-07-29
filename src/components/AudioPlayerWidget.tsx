@@ -13,7 +13,6 @@ import {
   MessageSquare,
   CheckCircle2,
 } from "lucide-react";
-import { generateSyntheticAudioDataUrl } from "../utils/audioGenerator";
 
 interface AudioPlayerWidgetProps {
   audioUrl?: string;
@@ -56,9 +55,8 @@ export const AudioPlayerWidget: React.FC<AudioPlayerWidgetProps> = ({
       setActiveAudioSrc(audioUrl!);
       setUseSpeechSynthesis(false);
     } else {
-      const generated = generateSyntheticAudioDataUrl(30);
-      setActiveAudioSrc(generated);
-      setUseSpeechSynthesis(true); // Default to speech synthesis if no custom file uploaded for 100% voice clarity
+      setActiveAudioSrc("");
+      setUseSpeechSynthesis(true);
     }
   }, [audioUrl, isRealFile]);
 

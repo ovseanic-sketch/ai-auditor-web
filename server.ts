@@ -54,10 +54,10 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Initialize Gemini Client
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
+function getGeminiClient(customApiKey?: string) {
+  const apiKey = customApiKey?.trim() || process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY environment variable is not configured. Please set your key in Settings > Secrets.");
+    throw new Error("GEMINI_API_KEY environment variable is not configured. Please set your key in Settings > Secrets or enter it in the header field.");
   }
   return new GoogleGenAI({
     apiKey,
@@ -79,7 +79,7 @@ app.get("/api/health", (_req, res) => {
 
 app.post("/api/analyze-mystery-shopper", async (req, res) => {
   try {
-    const { auditData, transcript, audioBase64, audioMimeType } = req.body;
+    const { auditData = {}, transcript, audioBase64, audioMimeType } = req.body;
 
     if (!transcript && !audioBase64) {
       return res.status(400).json({
@@ -181,15 +181,38 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
     "result": "Результат визита",
     "comment": "Краткое примечание",
     "bpvScore": 93.0
-  }
+  },
+  "criteria": [
+    {
+      "id": "contact_greeting",
+      "status": "Соблюдено",
+      "earnedPoints": 40,
+      "explanation": "Наблюдаемый факт",
+      "quote": "Цитата на исходном языке",
+      "timecode": "00:15",
+      "confidence": "высокий",
+      "source": "аудио"
+    }
+  ],
+  "salesDrivers": [
+    {
+      "id": "depth_of_needs",
+      "status": "Проявлен",
+      "points": 2,
+      "explanation": "Наблюдаемый факт"
+    }
+  ]
 }
 \`\`\`
+
+В техническом JSON верни по одному объекту для каждого официального критерия и каждого Sales Driver. Не выставляй соблюдение без доказательства. Кассовые ответы разрешено брать только из ручных данных анкеты, но не выводить из аудио.
 
 Выдавай отчёт профессиональным, структурированным, доказательным языком на русском языке.`;
 
     let contentsParts: any[] = [];
+    let hasValidAudio = false;
 
-    if (audioBase64) {
+    if (audioBase64 && typeof audioBase64 === "string" && audioBase64.length > 50) {
       let mimeType = audioMimeType || "audio/mp3";
       let base64Data = audioBase64;
       if (audioBase64.includes(";base64,")) {
@@ -199,20 +222,30 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
         base64Data = parts[1];
       }
 
-      contentsParts.push({
-        inlineData: {
-          data: base64Data,
-          mimeType,
-        },
-      });
-      contentsParts.push({
-        text: `${systemPrompt}\n\nПроанализируй прикрепленную аудиозапись контрольной закупке согласно всем указанным требованиям.`,
-      });
-    } else {
-      contentsParts.push({
-        text: `${systemPrompt}\n\nВот стенограмма / текстовая запись визита для анализа:\n\"\"\"\n${transcript}\n\"\"\"`,
+      if (!base64Data.startsWith("http") && !base64Data.startsWith("blob:")) {
+        contentsParts.push({
+          inlineData: {
+            data: base64Data,
+            mimeType,
+          },
+        });
+        hasValidAudio = true;
+      }
+    }
+
+    let textPrompt = `${systemPrompt}\n\n`;
+    if (transcript && typeof transcript === "string" && transcript.trim()) {
+      textPrompt += `Текстовая запись / транскрипция визита:\n\"\"\"\n${transcript}\n\"\"\"\n\n`;
+    }
+    if (hasValidAudio) {
+      textPrompt += `Проанализируй прикрепленную аудиозапись визита и сопоставь с текстом транскрипта (при наличии).`;
+    } else if (!transcript || !transcript.trim()) {
+      return res.status(400).json({
+        error: "Предоставьте расшифровку (текст) диалога или прикрепите корректный файл аудиозаписи.",
       });
     }
+
+    contentsParts.push({ text: textPrompt });
 
     const response = await ai.models.generateContent({
       model: "gemini-3.6-flash",
@@ -224,12 +257,16 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
     const reportText = response.text || "Не удалось сгенерировать отчёт анализа.";
 
     let extractedMeta: any = null;
+    let criteria: any[] | undefined;
+    let salesDrivers: any[] | undefined;
     try {
-      const jsonMatch = reportText.match(/```json\s*(\{[\s\S]*?"extractedMeta"[\s\S]*?\})\s*```/);
+      const jsonMatch = reportText.match(/```json\s*([\s\S]*?)```/);
       if (jsonMatch && jsonMatch[1]) {
         const parsed = JSON.parse(jsonMatch[1]);
         if (parsed && parsed.extractedMeta) {
           extractedMeta = parsed.extractedMeta;
+          criteria = Array.isArray(parsed.criteria) ? parsed.criteria : undefined;
+          salesDrivers = Array.isArray(parsed.salesDrivers) ? parsed.salesDrivers : undefined;
         }
       }
     } catch (e) {
@@ -242,6 +279,8 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
       success: true,
       report: cleanedReport,
       extractedMeta,
+      criteria,
+      salesDrivers,
       modelUsed: "gemini-3.6-flash",
     });
   } catch (err: any) {

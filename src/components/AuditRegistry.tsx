@@ -5,7 +5,7 @@ import { AuditRecord, UserAccount, ApprovalStatus } from "../types";
 import { isAuditBelongsToManager } from "../utils/brandAccess";
 import { createNotification } from "../utils/notificationStore";
 import { ApprovalWorkflowPanel } from "./ApprovalWorkflowPanel";
-import { generateSyntheticAudioDataUrl } from "../utils/audioGenerator";
+import { MonthlySummaryModal } from "./MonthlySummaryModal";
 import {
   Folder,
   FolderPlus,
@@ -61,11 +61,11 @@ export function buildFullReportMarkdown(item: AuditRecord): string {
     historyMarkdown = `\n\n## 10. ИСТОРИЯ СОГЛАСОВАНИЯ, ПРОТЕСТОВ И РЕШЕНИЙ АУДИТОРА\n- **Текущий статус Акта:** ${
       item.approvalStatus === "APPROVED"
         ? "Утвержден руководителем"
-        : item.approvalStatus === "APPROVED_WITH_COMMENTS"
+        : item.approvalStatus === "APPROVED_WITH_COMMENT"
         ? "Утвержден руководителем с замечаниями"
         : item.approvalStatus === "REVISION_REQUESTED"
         ? "Подан протест / На пересмотре у проверяющего"
-        : item.approvalStatus === "FINALIZED"
+        : item.approvalStatus === "FINALIZED_NO_SCORE_CHANGE" || item.approvalStatus === "FINALIZED_WITH_SCORE_CHANGE"
         ? "Финализирован аудитором после пересмотра"
         : "На согласовании у руководителя"
     }\n` +
@@ -197,7 +197,7 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     salesDriveScore: 25.0,
     stopFactors: 0,
     audioFileName: "Запись_контрольной_закупки_AUD-2026-002.mp3",
-    approvalStatus: "APPROVED_WITH_COMMENTS",
+    approvalStatus: "APPROVED_WITH_COMMENT",
     approvedAt: "22.07.2026, 18:10",
     approvedBy: "Петров В.В. (Руководитель)",
     managerComment: "Результаты утверждены. Руководителю филиала провести инструктаж с консультантом по более активной презентации сопутствующих аксессуаров до пробития чека.",
@@ -269,7 +269,7 @@ export const INITIAL_AUDIT_RECORDS: AuditRecord[] = [
     speechScore: 96,
     salesDriveScore: 80.0,
     stopFactors: 0,
-    approvalStatus: "FINALIZED",
+    approvalStatus: "FINALIZED_NO_SCORE_CHANGE",
     reportSummary: "Экспертная консультация без покупки. Сотрудник отлично отработал воронку вопросов и выявил скрытые задачи.",
     managerComment: "Подал протест: Прошу пересмотреть балл за Sales Drive, так как консультант активно предлагал дополнительную гарантию.",
     auditorRevisionComment: "Проведена повторная проверка тайминга аудиозаписи. Балл за Sales Drive скорректирован с 70% на 80%.",
@@ -460,6 +460,7 @@ export function AuditRegistry({
   const [endDate, setEndDate] = useState<string>("");
   const [groupBy, setGroupBy] = useState<"none" | "group" | "brand" | "checkType" | "city" | "date" | "employee" | "inspector">("none");
   const [tableDensity, setTableDensity] = useState<"comfortable" | "compact">("comfortable");
+  const [showMonthlySummary, setShowMonthlySummary] = useState<boolean>(false);
 
   // Modal for Viewing Full Audit Report
   const [viewingRecord, setViewingRecord] = useState<AuditRecord | null>(null);
@@ -514,7 +515,7 @@ export function AuditRegistry({
           ? "Утвержден руководителем"
           : item.approvalStatus === "REVISION_REQUESTED"
           ? "Подан протест / На пересмотре у проверяющего"
-          : item.approvalStatus === "FINALIZED"
+          : item.approvalStatus === "FINALIZED_NO_SCORE_CHANGE" || item.approvalStatus === "FINALIZED_WITH_SCORE_CHANGE"
           ? "Финализирован аудитором после пересмотра"
           : "На согласовании у руководителя"
       }\n` +
@@ -541,9 +542,12 @@ export function AuditRegistry({
 
   // Helper to download audio file
   const downloadAudioFile = (item: AuditRecord) => {
-    const audioUrl = item.audioUrl || generateSyntheticAudioDataUrl(185);
+    if (!item.audioUrl) {
+      alert("Аудиозапись визита отсутствует");
+      return;
+    }
     const a = document.createElement("a");
-    a.href = audioUrl;
+    a.href = item.audioUrl;
     a.download = item.audioFileName || `Запись_контрольной_закупки_${item.id}.wav`;
     document.body.appendChild(a);
     a.click();
@@ -640,7 +644,6 @@ export function AuditRegistry({
   const isAuthorizedToDelete =
     currentUser?.role === "admin" ||
     currentUser?.role === "auditor" ||
-    currentUser?.role === "shopper" ||
     currentUser?.role === "inspector";
 
   const isAdmin = currentUser?.role === "admin";
@@ -683,14 +686,7 @@ export function AuditRegistry({
   // Accessible records according to role
   const accessibleRecords = records.filter((r) => {
     if (currentUser?.role === "shopper") {
-      const shopperName = (currentUser.name || "").toLowerCase().trim();
-      const inspectorName = (r.inspector || "").toLowerCase().trim();
-      return (
-        inspectorName.includes(shopperName) ||
-        shopperName.includes(inspectorName) ||
-        (r.checkType && r.checkType.toLowerCase().includes("mystery")) ||
-        (r.checkType && r.checkType.toLowerCase().includes("тайный"))
-      );
+      return r.shopperId === currentUser.id;
     }
     return isAuditBelongsToManager(r, currentUser);
   });
@@ -809,7 +805,10 @@ export function AuditRegistry({
     let matchesApproval = true;
     if (selectedApprovalFilter !== "ALL") {
       const recStatus = rec.approvalStatus || "PENDING_APPROVAL";
-      matchesApproval = recStatus === selectedApprovalFilter;
+      matchesApproval =
+        selectedApprovalFilter === "FINALIZED"
+          ? recStatus === "FINALIZED_NO_SCORE_CHANGE" || recStatus === "FINALIZED_WITH_SCORE_CHANGE"
+          : recStatus === selectedApprovalFilter;
     }
 
     return matchesBrand && matchesRegion && matchesManager && matchesCity && matchesMonth && matchesSearch && matchesType && matchesDate && matchesApproval;
@@ -919,15 +918,17 @@ export function AuditRegistry({
       const unapprovedItems = targetItems.filter(
         (r) =>
           r.approvalStatus !== "APPROVED" &&
-          r.approvalStatus !== "APPROVED_WITH_COMMENTS" &&
-          r.approvalStatus !== "FINALIZED"
+          r.approvalStatus !== "APPROVED_WITH_COMMENT" &&
+          r.approvalStatus !== "FINALIZED_NO_SCORE_CHANGE" &&
+          r.approvalStatus !== "FINALIZED_WITH_SCORE_CHANGE"
       );
 
       const approvedItems = targetItems.filter(
         (r) =>
           r.approvalStatus === "APPROVED" ||
-          r.approvalStatus === "APPROVED_WITH_COMMENTS" ||
-          r.approvalStatus === "FINALIZED"
+          r.approvalStatus === "APPROVED_WITH_COMMENT" ||
+          r.approvalStatus === "FINALIZED_NO_SCORE_CHANGE" ||
+          r.approvalStatus === "FINALIZED_WITH_SCORE_CHANGE"
       );
 
       // 1. Delete unapproved items directly
@@ -1078,6 +1079,15 @@ export function AuditRegistry({
           </button>
 
           <button
+            onClick={() => setShowMonthlySummary(true)}
+            className="flex items-center gap-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm cursor-pointer"
+            title="Открыть ежемесячный сводный отчёт ОКК"
+          >
+            <Calendar className="w-4 h-4 text-indigo-400" />
+            <span>Ежемесячный свод</span>
+          </button>
+
+          <button
             onClick={exportToCsv}
             className="flex items-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm cursor-pointer"
             title="Экспортировать все отфильтрованные данные реестра в CSV для Excel"
@@ -1086,7 +1096,9 @@ export function AuditRegistry({
             <span>Экспортировать в CSV</span>
           </button>
 
-          {currentUser?.role !== "shopper" && (
+          {(currentUser?.role === "admin" ||
+            currentUser?.role === "auditor" ||
+            currentUser?.role === "inspector") && (
             <button
               onClick={() => setIsCreatingNew(true)}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-lg shadow-blue-600/20 cursor-pointer"
@@ -1188,12 +1200,12 @@ export function AuditRegistry({
               <div className="text-[10px] text-slate-400 mt-0.5">Без замечаний</div>
             </button>
 
-            {/* Card 3: APPROVED_WITH_COMMENTS */}
+            {/* Card 3: APPROVED_WITH_COMMENT */}
             <button
               type="button"
-              onClick={() => setSelectedApprovalFilter("APPROVED_WITH_COMMENTS")}
+              onClick={() => setSelectedApprovalFilter("APPROVED_WITH_COMMENT")}
               className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                selectedApprovalFilter === "APPROVED_WITH_COMMENTS"
+                selectedApprovalFilter === "APPROVED_WITH_COMMENT"
                   ? "bg-amber-500/20 border-amber-500 text-amber-200 ring-2 ring-amber-500/30 shadow-lg shadow-amber-500/10"
                   : "bg-slate-900/90 border-slate-800 hover:border-slate-700 text-slate-300"
               }`}
@@ -1203,7 +1215,7 @@ export function AuditRegistry({
                 <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
               </div>
               <div className="text-xl font-black text-white mt-1">
-                {accessibleRecords.filter((r) => r.approvalStatus === "APPROVED_WITH_COMMENTS").length}
+                {accessibleRecords.filter((r) => r.approvalStatus === "APPROVED_WITH_COMMENT").length}
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5">Утверждены с комментарием</div>
             </button>
@@ -1243,7 +1255,7 @@ export function AuditRegistry({
                 <FileCheck className="w-4 h-4 text-blue-400 shrink-0" />
               </div>
               <div className="text-xl font-black text-white mt-1">
-                {accessibleRecords.filter((r) => r.approvalStatus === "FINALIZED").length}
+                {accessibleRecords.filter((r) => r.approvalStatus === "FINALIZED_NO_SCORE_CHANGE" || r.approvalStatus === "FINALIZED_WITH_SCORE_CHANGE").length}
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5">Пересмотр завершен</div>
             </button>
@@ -1368,9 +1380,10 @@ export function AuditRegistry({
               <option value="ALL" className="bg-slate-900 text-slate-100 font-medium">Все статусы</option>
               <option value="PENDING_APPROVAL" className="bg-slate-900 text-amber-300 font-medium">🟡 На согласовании</option>
               <option value="APPROVED" className="bg-slate-900 text-emerald-300 font-medium">🟢 Утвержден (без замечаний)</option>
-              <option value="APPROVED_WITH_COMMENTS" className="bg-slate-900 text-amber-400 font-medium">🟠 Утвержден с замечаниями</option>
+              <option value="APPROVED_WITH_COMMENT" className="bg-slate-900 text-amber-400 font-medium">🟠 Утвержден с замечаниями</option>
               <option value="REVISION_REQUESTED" className="bg-slate-900 text-rose-300 font-medium">🔴 На пересмотре / Доработке</option>
-              <option value="FINALIZED" className="bg-slate-900 text-blue-300 font-medium">🔵 Финализирован / Завершен</option>
+              <option value="FINALIZED_NO_SCORE_CHANGE" className="bg-slate-900 text-blue-300 font-medium">🔵 Финализирован / Завершен</option>
+              <option value="FINALIZED_WITH_SCORE_CHANGE" className="bg-slate-900 text-blue-300 font-medium">🔵 Финализирован с изменением оценки</option>
             </select>
           </div>
 
@@ -1671,7 +1684,7 @@ export function AuditRegistry({
                                     <span>На согласовании</span>
                                   </button>
                                 )}
-                                {item.approvalStatus === "APPROVED_WITH_COMMENTS" && (
+                                {item.approvalStatus === "APPROVED_WITH_COMMENT" && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1713,7 +1726,7 @@ export function AuditRegistry({
                                     <span>На пересмотре</span>
                                   </button>
                                 )}
-                                {item.approvalStatus === "FINALIZED" && (
+                                {item.approvalStatus === "FINALIZED_NO_SCORE_CHANGE" && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -1815,22 +1828,29 @@ export function AuditRegistry({
                                   </button>
 
                                   {/* Edit Button */}
-                                  <button
-                                    onClick={() => setEditingRecord(item)}
-                                    className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
-                                    title="Редактировать название и параметры"
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                  </button>
+                                  {(!isShopper || item.approvalStatus === "SHOPPER_CLARIFICATION_REQUESTED") && (
+                                    <button
+                                      onClick={() => {
+                                        if (isShopper && onLoadVisitToForm) onLoadVisitToForm(item);
+                                        else setEditingRecord(item);
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors"
+                                      title={isShopper ? "Внести запрошенное аудитором уточнение" : "Редактировать название и параметры"}
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
 
                                   {/* Delete Button */}
-                                  <button
-                                    onClick={() => handleDeleteSingle(item.id)}
-                                    className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
-                                    title="Удалить проверку"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                  {!isShopper && (
+                                    <button
+                                      onClick={() => handleDeleteSingle(item.id)}
+                                      className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+                                      title="Удалить проверку"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
 
                                   {/* Export PDF Button */}
                                   {!isShopper && (
@@ -2240,8 +2260,8 @@ export function AuditRegistry({
               const approvedCount = targetItems.filter(
                 (r) =>
                   r.approvalStatus === "APPROVED" ||
-                  r.approvalStatus === "APPROVED_WITH_COMMENTS" ||
-                  r.approvalStatus === "FINALIZED"
+                  r.approvalStatus === "APPROVED_WITH_COMMENT" ||
+                  r.approvalStatus === "FINALIZED_NO_SCORE_CHANGE"
               ).length;
 
               const unapprovedCount = targetItems.length - approvedCount;
@@ -2347,20 +2367,6 @@ export function AuditRegistry({
               </div>
 
               <div className="flex items-center gap-2">
-                {onLoadVisitToForm && !isShopper && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onLoadVisitToForm(viewingRecord);
-                      handleCloseModal();
-                    }}
-                    className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-3.5 py-2 rounded-xl transition-all shadow-md shadow-blue-600/20 cursor-pointer"
-                    title="Автозаполнить конструктор аудита на основе данных этого визита"
-                  >
-                    <Sparkles className="w-4 h-4 text-amber-300" />
-                    <span>Автозаполнить в Конструкторе</span>
-                  </button>
-                )}
                 {!isShopper && (
                   <button
                     type="button"
@@ -2471,6 +2477,14 @@ export function AuditRegistry({
           </div>
         </div>
       )}
+
+      {/* Monthly Summary Modal */}
+      <MonthlySummaryModal
+        isOpen={showMonthlySummary}
+        onClose={() => setShowMonthlySummary(false)}
+        audits={records}
+        auditorName={currentUser?.name || "Аудитор ОКК"}
+      />
     </div>
   );
 }

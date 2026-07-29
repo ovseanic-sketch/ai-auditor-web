@@ -1,5 +1,7 @@
 import React, { useState, useRef } from "react";
 import { UserAccount, AuditRecord, AppNotification } from "../types";
+import { ExactTimePicker } from "./ExactTimePicker";
+import { loadDictionaries } from "../utils/dictionaryStore";
 import {
   ShoppingBag,
   Clock,
@@ -40,13 +42,6 @@ interface ShopperVisitFormProps {
   onCancelEdit?: () => void;
 }
 
-// Helper constants for selects
-const TIME_SLOTS = Array.from({ length: 96 }, (_, i) => {
-  const h = Math.floor(i / 4).toString().padStart(2, "0");
-  const m = ((i % 4) * 15).toString().padStart(2, "0");
-  return `${h}:${m}`;
-});
-
 const formatTimeSlot = (val?: string) => {
   if (!val) return "10:00";
   const parts = val.trim().split(":");
@@ -57,27 +52,6 @@ const formatTimeSlot = (val?: string) => {
   }
   return val;
 };
-
-const CITY_OPTIONS = [
-  "Кишинёв",
-  "Бельцы",
-  "Бендеры",
-  "Тирасполь",
-  "Кагул",
-  "Комрат",
-  "Орхей",
-  "Унгены",
-  "Сороки",
-  "Дубоссары",
-  "Чадыр-Лунга",
-  "Единец",
-  "Каушаны",
-  "Хынчешты",
-  "Фалешты",
-  "Рышканы",
-  "Дрокия",
-  "Окница",
-];
 
 const DATE_OPTIONS = Array.from({ length: 14 }, (_, i) => {
   const d = new Date();
@@ -100,27 +74,40 @@ export const ShopperVisitForm: React.FC<ShopperVisitFormProps> = ({
   editingRecord,
   onCancelEdit,
 }) => {
-  const defaultManager =
-    users?.find((u) => u.role === "manager" || u.role === "admin")?.name ||
-    "Петров В.В.";
+  const [dictionaries, setDictionaries] = useState(loadDictionaries);
+  React.useEffect(() => {
+    const refresh = () => setDictionaries(loadDictionaries());
+    window.addEventListener("okk-dictionaries-updated", refresh);
+    return () => window.removeEventListener("okk-dictionaries-updated", refresh);
+  }, []);
 
   // 1. Basic Visit Info
   const [shopperName, setShopperName] = useState(currentUser?.name || "Тайный Покупатель");
+  const [checkType, setCheckType] = useState<string>("2. Mystery shopper (без покупки)");
   const [visitDate, setVisitDate] = useState<string>(
     new Date().toISOString().split("T")[0]
+  );
+  const [auditMonth, setAuditMonth] = useState<string>(
+    new Date().toISOString().slice(0, 7)
   );
   const [startTime, setStartTime] = useState<string>("14:00");
   const [endTime, setEndTime] = useState<string>("14:30");
 
   // 2. Location & Consultant & Passport Metadata
-  const [network, setNetwork] = useState<string>("Orange");
-  const [city, setCity] = useState<string>("Кишинёв");
+  const [network, setNetwork] = useState<string>(dictionaries.brands[0] || "");
+  const [city, setCity] = useState<string>(dictionaries.cities[0] || "");
   const [branch, setBranch] = useState<string>("Центр (бул. Штефан чел Маре)");
   const [consultantName, setConsultantName] = useState<string>("");
   const [region, setRegion] = useState<string>("Регион Центр");
-  const [manager, setManager] = useState<string>(defaultManager);
   const [category, setCategory] = useState<string>("Смартфоны и портативная техника");
   const [target, setTarget] = useState<string>("Консультация по покупке смартфона и сервисных услуг");
+
+  // 3. Audio State
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioData, setAudioData] = useState<string | null>(null);
+  const [audioMimeType, setAudioMimeType] = useState<string | undefined>(undefined);
+  const [audioFileName, setAudioFileName] = useState<string | null>(null);
 
   // 3. Consultant Appearance
   const [uniformStatus, setUniformStatus] = useState<"standard" | "partial" | "violation">(
@@ -155,11 +142,11 @@ export const ShopperVisitForm: React.FC<ShopperVisitFormProps> = ({
   // 6. Shopper Comments (Required text fields)
   const [whatLiked, setWhatLiked] = useState<string>("");
   const [whatDisliked, setWhatDisliked] = useState<string>("");
+  const [fiscalCheckIssued, setFiscalCheckIssued] = useState<"Да" | "Нет">("Да");
+  const [cashDisciplineObserved, setCashDisciplineObserved] = useState<"Да" | "Нет">("Да");
+  const [cashComment, setCashComment] = useState("");
 
-  // 7. Audio Upload State
-  const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [audioFileName, setAudioFileName] = useState<string | null>(null);
+  // 7. Audio Upload Reference
   const audioInputRef = useRef<HTMLInputElement>(null);
 
   // Form Validation & Success State
@@ -172,14 +159,14 @@ export const ShopperVisitForm: React.FC<ShopperVisitFormProps> = ({
     if (editingRecord) {
       setShopperName(editingRecord.inspector || currentUser?.name || "Тайный Покупатель");
       setVisitDate(editingRecord.date || new Date().toISOString().split("T")[0]);
+      setAuditMonth(editingRecord.month || (editingRecord.date || new Date().toISOString()).slice(0, 7));
       setStartTime(editingRecord.startTime || "14:00");
       setEndTime(editingRecord.endTime || "14:30");
-      setNetwork(editingRecord.brand || "Orange");
+      setNetwork(editingRecord.brand || dictionaries.brands[0] || "");
       setCity(editingRecord.city || "Кишинёв");
       setBranch(editingRecord.branch || "");
       setConsultantName(editingRecord.employeeCode || "");
       setRegion(editingRecord.region || editingRecord.group || "Регион Центр");
-      setManager(editingRecord.manager || defaultManager);
       setCategory(editingRecord.category || "Смартфоны и портативная техника");
       setTarget(editingRecord.target || "Консультация по покупке смартфона и сервисных услуг");
       
@@ -199,27 +186,41 @@ export const ShopperVisitForm: React.FC<ShopperVisitFormProps> = ({
       if (editingRecord.audioUrl) {
         setAudioUrl(editingRecord.audioUrl);
       }
+      if (editingRecord.cashData) {
+        setFiscalCheckIssued(editingRecord.cashData.fiscalCheckIssued);
+        setCashDisciplineObserved(editingRecord.cashData.cashDisciplineObserved);
+        setCashComment(editingRecord.cashData.comment || "");
+      }
     }
-  }, [editingRecord, currentUser, defaultManager]);
+  }, [editingRecord, currentUser, dictionaries.brands]);
 
   // Handle Audio Upload
   const handleAudioFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith("audio/")) {
-        alert("Пожалуйста, выберите аудиофайл (MP3, WAV, M4A, OGG).");
+      if (!file.type.startsWith("audio/") && !file.name.match(/\.(mp3|wav|m4a|aac|ogg|flac|m4b)$/i)) {
+        alert("Пожалуйста, выберите корректный аудиофайл (MP3, WAV, M4A, OGG).");
         return;
       }
       setAudioFile(file);
       setAudioFileName(file.name);
-      const url = URL.createObjectURL(file);
-      setAudioUrl(url);
+      setAudioMimeType(file.type || "audio/m4a");
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        setAudioData(result);
+        setAudioUrl(result);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
   const handleRemoveAudio = () => {
     setAudioFile(null);
     setAudioUrl(null);
+    setAudioData(null);
+    setAudioMimeType(undefined);
     setAudioFileName(null);
     if (audioInputRef.current) audioInputRef.current.value = "";
   };
@@ -233,6 +234,7 @@ export const ShopperVisitForm: React.FC<ShopperVisitFormProps> = ({
     if (!consultantName.trim()) errors.push("Укажите имя консультанта");
     if (!branch.trim()) errors.push("Укажите номер или название филиала");
     if (!city.trim()) errors.push("Укажите город");
+    if (!auditMonth.trim()) errors.push("Укажите месяц проверки");
 
     if (!whatLiked.trim()) errors.push("Заполните поле: Что понравилось в визите");
     if (!whatDisliked.trim()) errors.push("Заполните поле: Что не понравилось в визите");
@@ -244,25 +246,6 @@ export const ShopperVisitForm: React.FC<ShopperVisitFormProps> = ({
     }
 
     setValidationErrors([]);
-
-    // Calculate aggregated score for BPV / Mystery Shopper (0-100)
-    let score = 100;
-    if (uniformStatus === "partial") score -= 10;
-    if (uniformStatus === "violation") score -= 25;
-    if (neatnessStatus === "minor_remarks") score -= 10;
-    if (neatnessStatus === "unneat") score -= 20;
-    if (badgeStatus !== "present") score -= 10;
-
-    if (staffAvailability === "had_to_search") score -= 15;
-    if (staffAvailability === "absent") score -= 30;
-    if (noGroupingStatus !== "dispersed") score -= 15;
-    if (hallCleanlinessStatus !== "clean") score -= 10;
-
-    const avgStoreRating = Math.round(
-      ((cleanlinessRating + merchandisingRating + assortmentRating) / 15) * 100
-    );
-
-    const finalBpvScore = Math.max(20, Math.round((score * 0.6) + (avgStoreRating * 0.4)));
 
     // Generate comprehensive report summary
     const fullReportText = `
@@ -305,6 +288,7 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
     const recordPayload: Omit<AuditRecord, "id"> & { id?: string } = {
       ...(editingRecord?.id ? { id: editingRecord.id } : {}),
       date: visitDate,
+      month: auditMonth,
       startTime,
       endTime,
       brand: network,
@@ -312,24 +296,73 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
       branch,
       group: region || "Регион Центр",
       region: region || "Регион Центр",
-      manager: manager || defaultManager,
       category: category || "Смартфоны и портативная техника",
       target: target || "Консультация по покупке смартфона и сервисных услуг",
-      result: `Оценка визита шоппера: ${finalBpvScore}%`,
+      result: "Анкета шоппера отправлена на проверку аудитору",
       comment: `Что понравилось: ${whatLiked}. Что не понравилось: ${whatDisliked}`,
-      checkType: "2. Mystery shopper (без покупки)",
+      checkType: checkType || "2. Mystery shopper (без покупки)",
       employeeCode: consultantName,
       inspector: shopperName,
-      bpvScore: finalBpvScore,
-      speechScore: Math.round(avgStoreRating),
-      salesDriveScore: score,
-      stopFactors: (uniformStatus === "violation" || staffAvailability === "absent") ? 1 : 0,
-      reportSummary: `Визит Тайного Покупателя (${shopperName}). Консультант: ${consultantName}. Оценка визита: ${finalBpvScore}%.`,
+      shopperName: shopperName,
+      shopperId: currentUser?.id,
+      bpvScore: 0,
+      speechScore: 0,
+      salesDriveScore: 0,
+      stopFactors: 0,
+      reportSummary: `Визит Тайного Покупателя (${shopperName}). Консультант: ${consultantName}. Ожидает проверки аудитора.`,
+      shopperSubmissionText: fullReportText,
       fullReportText,
       audioFileName: audioFileName || undefined,
-      audioUrl: audioUrl || undefined,
-      approvalStatus: editingRecord?.approvalStatus || "PENDING_APPROVAL",
-      managerComment: editingRecord?.managerComment || "Отчет тайного покупателя передан на рассмотрение руководителю ОКК.",
+      audioUrl: audioData || audioUrl || undefined,
+      audioData: audioData || undefined,
+      audioMimeType: audioMimeType || undefined,
+      cashData:
+        checkType === "1. Контрольная закупка"
+          ? {
+              fiscalCheckIssued,
+              cashDisciplineObserved,
+              comment: cashComment,
+              source: "shopper_manual",
+            }
+          : undefined,
+      shopperData: {
+        shopperName,
+        visitDate,
+        auditMonth,
+        startTime,
+        endTime,
+        network,
+        city,
+        branch,
+        consultantName,
+        uniformStatus,
+        neatnessStatus,
+        badgeStatus,
+        appearanceComment,
+        cleanlinessRating,
+        merchandisingRating,
+        assortmentRating,
+        storeComment,
+        staffAvailability,
+        noGroupingStatus,
+        hallCleanlinessStatus,
+        hallComment,
+        whatLiked,
+        whatDisliked,
+        audioFileName: audioFileName || undefined,
+        audioUrl: audioData || audioUrl || undefined,
+        cashData:
+          checkType === "1. Контрольная закупка"
+            ? {
+                fiscalCheckIssued,
+                cashDisciplineObserved,
+                comment: cashComment,
+                source: "shopper_manual",
+              }
+            : undefined,
+      },
+      approvalStatus: editingRecord?.approvalStatus || "SHOPPER_SUBMITTED",
+      managerComment: editingRecord?.managerComment,
     };
 
     onSubmitVisit(recordPayload);
@@ -516,7 +549,21 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Тип проверки <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={checkType}
+                  onChange={(e) => setCheckType(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-emerald-400 font-bold focus:outline-none transition-all cursor-pointer"
+                >
+                  <option value="1. Контрольная закупка">1. Контрольная закупка</option>
+                  <option value="2. Mystery shopper (без покупки)">2. Mystery shopper (без покупки)</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-300 mb-1.5">
                   ФИО шоппера <span className="text-red-400">*</span>
@@ -544,49 +591,34 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Время начала <span className="text-red-400">*</span></span>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Месяц проверки <span className="text-red-400">*</span>
                 </label>
-                <select
-                  value={formatTimeSlot(startTime)}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-semibold"
-                >
-                  {startTime && !TIME_SLOTS.includes(formatTimeSlot(startTime)) && (
-                    <option value={formatTimeSlot(startTime)} className="bg-slate-900 text-slate-100 font-medium">
-                      {formatTimeSlot(startTime)}
-                    </option>
-                  )}
-                  {TIME_SLOTS.map((slot) => (
-                    <option key={slot} value={slot} className="bg-slate-900 text-slate-100 font-medium">
-                      {slot}
-                    </option>
-                  ))}
-                </select>
+                <input
+                  type="month"
+                  required
+                  value={auditMonth}
+                  onChange={(e) => setAuditMonth(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer scheme-dark"
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Время окончания <span className="text-red-400">*</span></span>
-                </label>
-                <select
-                  value={formatTimeSlot(endTime)}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-semibold"
-                >
-                  {endTime && !TIME_SLOTS.includes(formatTimeSlot(endTime)) && (
-                    <option value={formatTimeSlot(endTime)} className="bg-slate-900 text-slate-100 font-medium">
-                      {formatTimeSlot(endTime)}
-                    </option>
-                  )}
-                  {TIME_SLOTS.map((slot) => (
-                    <option key={slot} value={slot} className="bg-slate-900 text-slate-100 font-medium">
-                      {slot}
-                    </option>
-                  ))}
-                </select>
+                <ExactTimePicker
+                  label="Время начала"
+                  value={startTime}
+                  onChange={setStartTime}
+                  required
+                />
+              </div>
+
+              <div>
+                <ExactTimePicker
+                  label="Время окончания"
+                  value={endTime}
+                  onChange={setEndTime}
+                  required
+                />
               </div>
             </div>
 
@@ -600,14 +632,9 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
                   onChange={(e) => setNetwork(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all"
                 >
-                  <option value="Orange">Orange</option>
-                  <option value="Apple Store">Apple Store</option>
-                  <option value="Samsung">Samsung</option>
-                  <option value="М.Видео">М.Видео</option>
-                  <option value="DNS">DNS</option>
-                  <option value="O!Store">O!Store</option>
-                  <option value="Beeline">Beeline</option>
-                  <option value="MegaCom">MegaCom</option>
+                  {dictionaries.brands.map((brand) => (
+                    <option key={brand} value={brand}>{brand}</option>
+                  ))}
                 </select>
               </div>
 
@@ -621,7 +648,7 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
                   onChange={(e) => setCity(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer"
                 >
-                  {CITY_OPTIONS.map((c) => (
+                  {dictionaries.cities.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -667,19 +694,6 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
                   onChange={(e) => setRegion(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all"
                   placeholder="Регион"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                  Руководитель филиала
-                </label>
-                <input
-                  type="text"
-                  value={manager}
-                  onChange={(e) => setManager(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all"
-                  placeholder="ФИО руководителя"
                 />
               </div>
 
@@ -1043,6 +1057,35 @@ ${audioFileName ? `🎙 Прикрепленный аудиофайл запис
               />
             </div>
           </div>
+
+          {checkType === "1. Контрольная закупка" && (
+            <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-800">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm font-extrabold text-white">
+                  5. Кассовая дисциплина — данные шоппера
+                </h3>
+              </div>
+              <p className="text-xs text-slate-400">
+                Эти сведения вводятся вручную. ИИ не определяет выдачу чека по аудиозаписи.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="text-xs text-slate-300">
+                  Выдан фискальный чек
+                  <select value={fiscalCheckIssued} onChange={(e) => setFiscalCheckIssued(e.target.value as "Да" | "Нет")} className="mt-1.5 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white">
+                    <option value="Да">Да</option><option value="Нет">Нет</option>
+                  </select>
+                </label>
+                <label className="text-xs text-slate-300">
+                  Кассовая дисциплина соблюдена
+                  <select value={cashDisciplineObserved} onChange={(e) => setCashDisciplineObserved(e.target.value as "Да" | "Нет")} className="mt-1.5 w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white">
+                    <option value="Да">Да</option><option value="Нет">Нет</option>
+                  </select>
+                </label>
+              </div>
+              <textarea value={cashComment} onChange={(e) => setCashComment(e.target.value)} rows={2} placeholder="Комментарий по кассовой операции, если необходим" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white" />
+            </div>
+          )}
 
           {/* Section 5: Shopper Required Comments */}
           <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-4">

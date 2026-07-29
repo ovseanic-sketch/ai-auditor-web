@@ -77,7 +77,7 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 85,
     salesDriveScore: 25.0,
     stopFactors: 0,
-    approvalStatus: "APPROVED_WITH_COMMENTS",
+    approvalStatus: "APPROVED_WITH_COMMENT",
     reportSummary: "Высокое качество презентации и работы с возражениями. Пропуск инициативного Cross-sell аксессуаров до оплаты.",
   },
   {
@@ -113,7 +113,7 @@ export const MOCK_AUDIT_HISTORY: AuditRecord[] = [
     speechScore: 96,
     salesDriveScore: 80.0,
     stopFactors: 0,
-    approvalStatus: "FINALIZED",
+    approvalStatus: "FINALIZED_NO_SCORE_CHANGE",
     reportSummary: "Экспертная консультация без покупки. Сотрудник отлично отработал воронку вопросов и выявил скрытые задачи.",
   },
   {
@@ -160,7 +160,7 @@ interface DashboardProps {
   onSelectAuditForView?: (audit: AuditRecord) => void;
 }
 
-export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSelectAuditForView }: DashboardProps) {
+export function Dashboard({ recentAudits = [], currentUser, onSelectAuditForView }: DashboardProps) {
   const [selectedBrandFilter, setSelectedBrandFilter] = useState<string>("ALL");
   const [selectedRegionFilter, setSelectedRegionFilter] = useState<string>("ALL");
   const [selectedManagerFilter, setSelectedManagerFilter] = useState<string>("ALL");
@@ -216,12 +216,13 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
 
   // Base user-accessible audits:
   // REQUIREMENT: In dashboards, ONLY data of audits that passed the full approval cycle must be displayed!
-  // (Passed full approval cycle = approvalStatus is "APPROVED", "APPROVED_WITH_COMMENTS", or "FINALIZED")
+  // (Passed full approval cycle = approvalStatus is "APPROVED", "APPROVED_WITH_COMMENT", or "FINALIZED_NO_SCORE_CHANGE")
   const userAccessibleAudits = recentAudits.filter((a) => {
     const isApproved =
       a.approvalStatus === "APPROVED" ||
-      a.approvalStatus === "APPROVED_WITH_COMMENTS" ||
-      a.approvalStatus === "FINALIZED";
+      a.approvalStatus === "APPROVED_WITH_COMMENT" ||
+      a.approvalStatus === "FINALIZED_NO_SCORE_CHANGE" ||
+      a.approvalStatus === "FINALIZED_WITH_SCORE_CHANGE";
     return isApproved && isAuditBelongsToManager(a, currentUser);
   });
 
@@ -1077,4 +1078,3 @@ export function Dashboard({ recentAudits = MOCK_AUDIT_HISTORY, currentUser, onSe
     </div>
   );
 }
-

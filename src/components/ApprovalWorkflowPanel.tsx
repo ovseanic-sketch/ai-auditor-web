@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { AuditRecord, UserAccount, ApprovalStatus } from "../types";
 import { createNotification } from "../utils/notificationStore";
 import { AudioPlayerWidget } from "./AudioPlayerWidget";
+import { canTransition, AuditStatus } from "../services/auditStateMachine";
 import {
   CheckCircle,
   AlertCircle,
@@ -54,6 +55,11 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
 
   // 1. MANAGER APPROVES AUDIT WITHOUT COMMENTS
   const handleManagerApprove = () => {
+    const transition = canTransition(currentStatus as AuditStatus, "APPROVED", currentUser?.role || "manager");
+    if (!transition.success) {
+      setManagerError(transition.error || "Переход статуса запрещён");
+      return;
+    }
     const timestamp = new Date().toLocaleString("ru-RU", {
       day: "2-digit",
       month: "2-digit",
@@ -106,6 +112,16 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
     }
 
     setApproveCommentError(null);
+    const transition = canTransition(
+      currentStatus as AuditStatus,
+      "APPROVED_WITH_COMMENT",
+      currentUser?.role || "manager",
+      approveCommentText
+    );
+    if (!transition.success) {
+      setApproveCommentError(transition.error || "Переход статуса запрещён");
+      return;
+    }
     const timestamp = new Date().toLocaleString("ru-RU", {
       day: "2-digit",
       month: "2-digit",
@@ -127,7 +143,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
 
     const updatedRecord: AuditRecord = {
       ...record,
-      approvalStatus: "APPROVED_WITH_COMMENTS",
+      approvalStatus: "APPROVED_WITH_COMMENT",
       approvedAt: timestamp,
       approvedBy: currentUser?.name || record.manager || "Руководитель",
       managerComment: approveCommentText.trim(),
@@ -161,6 +177,16 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
     }
 
     setManagerError(null);
+    const transition = canTransition(
+      currentStatus as AuditStatus,
+      "REVISION_REQUESTED",
+      currentUser?.role || "manager",
+      managerCommentText
+    );
+    if (!transition.success) {
+      setManagerError(transition.error || "Переход статуса запрещён");
+      return;
+    }
     const timestamp = new Date().toLocaleString("ru-RU", {
       day: "2-digit",
       month: "2-digit",
@@ -223,6 +249,20 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
     });
 
     const finalScore = revisionOption === "adjust" ? Number(newScoreVal) : record.bpvScore;
+    const targetStatus: AuditStatus =
+      revisionOption === "adjust" && finalScore !== record.bpvScore
+        ? "FINALIZED_WITH_SCORE_CHANGE"
+        : "FINALIZED_NO_SCORE_CHANGE";
+    const transition = canTransition(
+      currentStatus as AuditStatus,
+      targetStatus,
+      currentUser?.role || "auditor",
+      auditorCommentText
+    );
+    if (!transition.success) {
+      setAuditorError(transition.error || "Переход статуса запрещён");
+      return;
+    }
 
     const updatedHistory = [
       ...(record.approvalHistory || []),
@@ -242,7 +282,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
 
     const updatedRecord: AuditRecord = {
       ...record,
-      approvalStatus: "FINALIZED",
+      approvalStatus: targetStatus,
       bpvScore: finalScore,
       revisedScore: finalScore,
       auditorRevisionComment: auditorCommentText.trim(),
@@ -274,10 +314,10 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
             {currentStatus === "APPROVED" && <CheckCircle className="w-5 h-5 text-emerald-400" />}
-            {currentStatus === "APPROVED_WITH_COMMENTS" && <MessageSquare className="w-5 h-5 text-amber-400" />}
+            {currentStatus === "APPROVED_WITH_COMMENT" && <MessageSquare className="w-5 h-5 text-amber-400" />}
             {currentStatus === "PENDING_APPROVAL" && <Clock className="w-5 h-5 text-amber-400" />}
             {currentStatus === "REVISION_REQUESTED" && <RotateCcw className="w-5 h-5 text-amber-500 animate-spin-slow" />}
-            {currentStatus === "FINALIZED" && <FileCheck className="w-5 h-5 text-blue-400" />}
+            {(currentStatus === "FINALIZED_NO_SCORE_CHANGE" || currentStatus === "FINALIZED_WITH_SCORE_CHANGE") && <FileCheck className="w-5 h-5 text-blue-400" />}
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -287,7 +327,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
                   <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> Утвержден
                 </span>
               )}
-              {currentStatus === "APPROVED_WITH_COMMENTS" && (
+              {currentStatus === "APPROVED_WITH_COMMENT" && (
                 <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
                   <MessageSquare className="w-3.5 h-3.5 text-amber-400" /> Утвержден с замечаниями
                 </span>
@@ -302,7 +342,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
                   <RotateCcw className="w-3.5 h-3.5" /> На пересмотре у проверяющего
                 </span>
               )}
-              {currentStatus === "FINALIZED" && (
+              {(currentStatus === "FINALIZED_NO_SCORE_CHANGE" || currentStatus === "FINALIZED_WITH_SCORE_CHANGE") && (
                 <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
                   <FileCheck className="w-3.5 h-3.5" /> Финализирован аудитором
                 </span>
@@ -329,7 +369,7 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
       />
 
       {/* SECTION: MANAGER ACTIONS (When PENDING_APPROVAL or FINALIZED) */}
-      {isManagerOrAdmin && (currentStatus === "PENDING_APPROVAL" || currentStatus === "FINALIZED") && (
+      {isManagerOrAdmin && currentStatus === "PENDING_APPROVAL" && (
         <div className="bg-slate-900/80 border border-indigo-500/30 rounded-xl p-4 space-y-4">
           <div className="flex items-center gap-2 text-indigo-300 font-bold text-xs">
             <Shield className="w-4 h-4 text-indigo-400" />
@@ -490,8 +530,8 @@ export const ApprovalWorkflowPanel: React.FC<ApprovalWorkflowPanelProps> = ({
         </div>
       )}
 
-      {/* Info banner when status is APPROVED_WITH_COMMENTS */}
-      {currentStatus === "APPROVED_WITH_COMMENTS" && (
+      {/* Info banner when status is APPROVED_WITH_COMMENT */}
+      {currentStatus === "APPROVED_WITH_COMMENT" && (
         <div className="bg-amber-950/20 border border-amber-500/40 rounded-xl p-4 text-xs text-amber-200 space-y-2">
           <div className="flex items-center gap-2 font-bold text-amber-300">
             <MessageSquare className="w-4 h-4 text-amber-400" />

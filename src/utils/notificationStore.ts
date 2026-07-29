@@ -1,36 +1,16 @@
 import { AppNotification, UserRole } from "../types";
+import { checkSupabaseConnection, getSupabase } from "../services/supabaseClient";
 
 const NOTIFICATIONS_STORAGE_KEY = "okk_notifications_v1";
-
-export const INITIAL_NOTIFICATIONS: AppNotification[] = [
-  {
-    id: "notif-001",
-    recipientName: "Петров В.В.",
-    recipientRole: "manager",
-    recipientEmail: "petrov@company.com",
-    title: "Новый Акт оценки ОКК на согласовании",
-    message: "Аудитор №17 сформировал Акт AUD-2026-001 (Orange, Кишинев). Пожалуйста, проверьте результаты и утвердите или отправьте на пересмотр.",
-    auditId: "AUD-2026-001",
-    type: "NEW_AUDIT_FOR_APPROVAL",
-    read: false,
-    createdAt: "26.07.2026, 14:35",
-    emailSentSimulation: {
-      toEmail: "petrov@company.com",
-      toName: "Петров В.В. (Руководитель)",
-      subject: " [ОКК] Поступил новый Акт оценки AUD-2026-001 на согласование",
-      bodyText: `Уважаемый Петров В.В.!\n\nАудитор сформировал новый Акт оценки ОКК AUD-2026-001.\nЛокация: Кишинев, Rîșcani (Филиал №17)\nОценка BPV: 100%\n\nПожалуйста, войдите в систему ОКК, ознакомьтесь с подробным отчетом и утвердите результаты или отправьте на пересмотр с комментарием.`
-    }
-  }
-];
 
 export function loadNotifications(): AppNotification[] {
   try {
     const raw = localStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
-    if (!raw) return INITIAL_NOTIFICATIONS;
+    if (!raw) return [];
     return JSON.parse(raw);
   } catch (e) {
     console.error("Failed to load notifications", e);
-    return INITIAL_NOTIFICATIONS;
+    return [];
   }
 }
 
@@ -40,16 +20,31 @@ export function saveNotifications(notifications: AppNotification[]): void {
   } catch (e) {
     console.error("Failed to save notifications", e);
   }
+  if (checkSupabaseConnection()) {
+    const supabase = getSupabase();
+    void Promise.all(
+      notifications.map((notification) =>
+        supabase?.from("app_notifications").upsert({
+          id: notification.id,
+          recipient_id: notification.recipientId,
+          recipient_role: notification.recipientRole,
+          payload: notification,
+          read: notification.read,
+        })
+      )
+    );
+  }
 }
 
 export function createNotification(params: {
   recipientName: string;
+  recipientId?: string;
   recipientRole?: UserRole;
   recipientEmail?: string;
   title: string;
   message: string;
   auditId?: string;
-  type: "NEW_AUDIT_FOR_APPROVAL" | "AUDIT_APPROVED" | "REVISION_REQUESTED" | "REVISION_SUBMITTED" | "PASSWORD_RESET_REQUEST" | "AUDIT_DELETE_REQUEST";
+  type: AppNotification["type"];
   emailSubject?: string;
   emailBody?: string;
 }): AppNotification {
@@ -57,8 +52,9 @@ export function createNotification(params: {
   const newNotif: AppNotification = {
     id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     recipientName: params.recipientName,
+    recipientId: params.recipientId,
     recipientRole: params.recipientRole,
-    recipientEmail: params.recipientEmail || "manager@company.com",
+    recipientEmail: params.recipientEmail,
     title: params.title,
     message: params.message,
     auditId: params.auditId || "",
@@ -72,7 +68,7 @@ export function createNotification(params: {
       minute: "2-digit",
     }),
     emailSentSimulation: {
-      toEmail: params.recipientEmail || "manager@company.com",
+      toEmail: params.recipientEmail || "",
       toName: params.recipientName,
       subject: params.emailSubject || `[ОКК Уведомление] ${params.title}`,
       bodyText: params.emailBody || params.message,
@@ -82,4 +78,17 @@ export function createNotification(params: {
   const updated = [newNotif, ...currentList];
   saveNotifications(updated);
   return newNotif;
+}
+
+export async function loadNotificationsRemote(): Promise<AppNotification[]> {
+  if (!checkSupabaseConnection()) return loadNotifications();
+  const supabase = getSupabase()!;
+  const { data, error } = await supabase
+    .from("app_notifications")
+    .select("payload,read")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`Не удалось загрузить уведомления: ${error.message}`);
+  const notifications = (data || []).map((row: any) => ({ ...row.payload, read: row.read }));
+  saveNotifications(notifications);
+  return notifications;
 }

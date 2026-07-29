@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { UserAccount, UserRole } from "../types";
 import { FeedbackNotepad } from "./FeedbackNotepad";
 import { createNotification } from "../utils/notificationStore";
+import { checkSupabaseConnection, signInWithSupabase } from "../services/supabaseClient";
 import {
   ShieldCheck,
   Key,
@@ -214,7 +215,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
     setShowPasswords((prev) => ({ ...prev, [role]: !prev[role] }));
   };
 
-  const handleCardSubmit = (e: React.FormEvent, role: UserRole) => {
+  const handleCardSubmit = async (e: React.FormEvent, role: UserRole) => {
     e.preventDefault();
     setActiveError(null);
 
@@ -227,7 +228,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
       return;
     }
 
-    const matchedUser = users.find((u) => u.login.toLowerCase() === cleanLogin);
+    const matchedUser = users.find((u) => u.login.toLowerCase() === cleanLogin || u.email?.toLowerCase() === cleanLogin);
+
+    if (checkSupabaseConnection()) {
+      try {
+        const authenticated = await signInWithSupabase(
+          cleanLogin.includes("@") ? cleanLogin : matchedUser?.email || cleanLogin,
+          cleanPass
+        );
+        if (authenticated.status === "blocked") {
+          setActiveError({ role, message: "Учетная запись заблокирована" });
+          return;
+        }
+        if (authenticated.role !== role && !(role === "inspector" && authenticated.role === "auditor")) {
+          setActiveError({ role, message: "Выбрана карточка другой роли" });
+          return;
+        }
+        onLoginSuccess({
+          id: authenticated.id,
+          login: authenticated.email,
+          email: authenticated.email,
+          name: authenticated.name,
+          position: authenticated.position,
+          role: authenticated.role as UserRole,
+          status: authenticated.status,
+          createdAt: new Date().toISOString(),
+        });
+        return;
+      } catch (error) {
+        setActiveError({ role, message: error instanceof Error ? error.message : "Ошибка входа" });
+        return;
+      }
+    }
 
     if (!matchedUser) {
       setActiveError({ role, message: "Пользователь не найден" });

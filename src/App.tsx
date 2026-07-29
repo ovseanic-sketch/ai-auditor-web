@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Header } from "./components/Header";
 import { AuditForm } from "./components/AuditForm";
 import { AuditReportView } from "./components/AuditReportView";
 import { Dashboard } from "./components/Dashboard";
-import { AuditRegistry, INITIAL_AUDIT_RECORDS } from "./components/AuditRegistry";
+import { AuditRegistry } from "./components/AuditRegistry";
 import { UserManagement } from "./components/UserManagement";
 import { LoginPage } from "./components/LoginPage";
 import { FeedbackNotepad } from "./components/FeedbackNotepad";
@@ -12,9 +12,13 @@ import { DEFAULT_USERS } from "./data/defaultUsers";
 import { AUDIT_PRESETS } from "./data/auditPresets";
 import { AuditFormData, UserAccount, UserRole, AuditRecord, AppNotification } from "./types";
 import { analyzeMysteryShopperClient } from "./services/geminiService";
-import { cleanMarkdownReport, updateReportMetadata, highlightManualEdits, ReportMetadataInput, generateFallbackReportWithShopperData } from "./utils/cleanMarkdown";
-import { loadNotifications, saveNotifications, createNotification } from "./utils/notificationStore";
+import { updateReportMetadata, ReportMetadataInput } from "./utils/cleanMarkdown";
+import { calculateAuditScores } from "./utils/auditCalculator";
+import { loadNotifications, loadNotificationsRemote, saveNotifications, createNotification } from "./utils/notificationStore";
 import { AlertCircle, X } from "lucide-react";
+import { AuditRepository } from "./services/AuditRepository";
+import { checkSupabaseConnection, loadActiveProfiles, signOutFromSupabase } from "./services/supabaseClient";
+import { loadDictionariesRemote } from "./utils/dictionaryStore";
 
 export default function App() {
   // Theme State (Persisted in localStorage, default "dark")
@@ -91,20 +95,42 @@ export default function App() {
 
   // Current SubView State
   const [auditSubView, setAuditSubView] = useState<"form" | "registry" | "dashboard" | "users">(() => {
-    if (currentUser?.role === "manager") return "dashboard";
-    if (currentUser?.role === "admin") return "users";
     return "form";
   });
 
   // Handle Login & Logout
   const handleLoginSuccess = (user: UserAccount) => {
     setCurrentUser(user);
-    if (user.role === "manager") setAuditSubView("dashboard");
+    if (checkSupabaseConnection()) {
+      loadNotificationsRemote().then(setNotifications).catch(() => undefined);
+      loadDictionariesRemote().catch((error) =>
+        setErrorMessage(error instanceof Error ? error.message : "Не удалось загрузить справочники")
+      );
+      loadActiveProfiles()
+        .then((profiles) =>
+          setUsers(
+            profiles.map((profile) => ({
+              id: profile.id,
+              login: profile.login,
+              email: profile.login,
+              name: profile.full_name,
+              position: profile.position,
+              network: profile.network_scope,
+              role: profile.role as UserRole,
+              status: profile.status,
+              createdAt: profile.created_at || new Date().toISOString(),
+            }))
+          )
+        )
+        .catch((error) => setErrorMessage(error instanceof Error ? error.message : "Не удалось загрузить пользователей"));
+    }
+    if (user.role === "manager") setAuditSubView("registry");
     else if (user.role === "admin") setAuditSubView("users");
     else setAuditSubView("form");
   };
 
   const handleLogout = () => {
+    signOutFromSupabase().catch(() => undefined);
     setCurrentUser(null);
   };
 
@@ -115,7 +141,7 @@ export default function App() {
     const matchedUser = users.find((u) => u.role === role && u.status === "active");
     if (matchedUser) {
       setCurrentUser(matchedUser);
-      if (role === "manager") setAuditSubView("dashboard");
+      if (role === "manager") setAuditSubView("registry");
       else if (role === "admin") setAuditSubView("users");
       else setAuditSubView("form");
     }
@@ -187,31 +213,68 @@ export default function App() {
     );
   };
 
-  // Persistent Audit Registry Records
-  const [auditRecords, setAuditRecords] = useState<AuditRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem("okk_audit_records_v2");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) return parsed;
-        } catch (parseErr) {
-          console.warn("Invalid JSON in localStorage okk_audit_records_v2, resetting to default:", parseErr);
-        }
+  // Migration helper for legacy records
+  const migrateRecord = (rec: AuditRecord): AuditRecord => {
+    const updated = { ...rec };
+    if (!updated.shopperSubmissionText) {
+      if (updated.shopperData) {
+        updated.shopperSubmissionText = `АНКЕТА ТАЙНОГО ПОКУПАТЕЛЯ (${updated.shopperData.shopperName || updated.inspector})\nКонсультант: ${updated.shopperData.consultantName || updated.employeeCode}\nЧто понравилось: ${updated.shopperData.whatLiked || ""}\nЧто не понравилось: ${updated.shopperData.whatDisliked || ""}`;
+      } else {
+        updated.shopperSubmissionText = updated.reportSummary || "";
       }
-    } catch (e) {
-      console.error("Failed to load audit records from storage", e);
     }
-    return INITIAL_AUDIT_RECORDS;
-  });
+    if (!updated.auditorFinalReport && updated.fullReportText) {
+      updated.auditorFinalReport = updated.fullReportText;
+    }
+    if (!updated.aiAnalysisText && updated.fullReportText) {
+      updated.aiAnalysisText = updated.fullReportText;
+    }
+    return updated;
+  };
+
+  // AuditRepository is the only persistence boundary for audit records.
+  const [auditRecords, setAuditRecords] = useState<AuditRecord[]>([]);
+  const [auditRepositoryReady, setAuditRepositoryReady] = useState(false);
+  const persistedAuditsSnapshot = useRef("");
 
   useEffect(() => {
-    try {
-      localStorage.setItem("okk_audit_records_v2", JSON.stringify(auditRecords));
-    } catch (e) {
-      console.error("Failed to save audit records", e);
+    if (checkSupabaseConnection() && !currentUser) {
+      setAuditRepositoryReady(false);
+      return;
     }
-  }, [auditRecords]);
+    let active = true;
+    setAuditRepositoryReady(false);
+    AuditRepository.getAllAudits()
+      .then((records) => {
+        if (active) {
+          const migrated = records.map(migrateRecord);
+          persistedAuditsSnapshot.current = JSON.stringify(migrated);
+          setAuditRecords(migrated);
+        }
+      })
+      .catch((error) => {
+        if (active) setErrorMessage(error instanceof Error ? error.message : "Не удалось загрузить проверки");
+      })
+      .finally(() => {
+        if (active) setAuditRepositoryReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!auditRepositoryReady) return;
+    const currentSnapshot = JSON.stringify(auditRecords);
+    if (currentSnapshot === persistedAuditsSnapshot.current) return;
+    AuditRepository.replaceAllAudits(auditRecords)
+      .then(() => {
+        persistedAuditsSnapshot.current = JSON.stringify(auditRecords);
+      })
+      .catch((error) => {
+        setErrorMessage(error instanceof Error ? error.message : "Не удалось сохранить проверки");
+      });
+  }, [auditRecords, auditRepositoryReady]);
 
   // Notifications State & Handlers
   const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
@@ -245,6 +308,9 @@ export default function App() {
   // Admin approves auditor's request to delete an approved audit record
   const handleApproveDeleteAudit = (auditId: string, notifId: string) => {
     setAuditRecords((prev) => prev.filter((r) => r.id !== auditId));
+    AuditRepository.deleteAudit(auditId).catch((error) => {
+      setErrorMessage(error instanceof Error ? error.message : "Не удалось удалить проверку");
+    });
     handleMarkNotificationAsRead(notifId);
 
     createNotification({
@@ -279,7 +345,7 @@ export default function App() {
   const handleGoHome = () => {
     setSelectedAuditIdForModal(null);
     setErrorMessage(null);
-    if (currentUser?.role === "manager") setAuditSubView("dashboard");
+    if (currentUser?.role === "manager") setAuditSubView("registry");
     else if (currentUser?.role === "admin") setAuditSubView("dashboard");
     else setAuditSubView("form");
   };
@@ -310,9 +376,17 @@ export default function App() {
   const [auditReport, setAuditReport] = useState<string | null>(null);
   const [originalReport, setOriginalReport] = useState<string | null>(null);
   const [originalMeta, setOriginalMeta] = useState<ReportMetadataInput | undefined>(undefined);
+  const [activeAuditRecordId, setActiveAuditRecordId] = useState<string | null>(null);
+  const [shopperEditingRecord, setShopperEditingRecord] = useState<AuditRecord | null>(null);
+  const [shopperSubmissionText, setShopperSubmissionText] = useState<string>("");
 
   // STEP 1 -> STEP 2: Operator starts AI Analysis
   const handleStartStep1To2 = async () => {
+    if (audioBase64 && (audioBase64.startsWith("blob:") || audioBase64.startsWith("http"))) {
+      setErrorMessage("Передана временная blob-ссылка или URL вместо данных аудиофайла. Выберите файл с диска заново.");
+      return;
+    }
+
     if (!transcript.trim() && !audioBase64) {
       setErrorMessage("Предоставьте текст диалога или аудиозапись визита.");
       return;
@@ -359,14 +433,45 @@ export default function App() {
       setAuditReport(formattedReport);
       setOriginalReport(formattedReport);
 
+      if (!data.criteria || data.criteria.length === 0) {
+        throw new Error("ИИ не вернул структурированные результаты BPV. Отчёт не может быть оценён только по тексту.");
+      }
+      if (activeAuditRecordId) {
+        const structuredScores = calculateAuditScores(
+          mergedAuditData.checkType || "2. Mystery shopper (без покупки)",
+          data.criteria,
+          false
+        );
+        setAuditRecords((records) =>
+          records.map((record) =>
+            record.id === activeAuditRecordId
+              ? {
+                  ...record,
+                  approvalStatus: "AUDITOR_REVIEW",
+                  criteria: structuredScores.criteria,
+                  calculation: structuredScores.calculation,
+                  bpvScore: structuredScores.bpvScore,
+                  cashScore:
+                    structuredScores.cashIndex === "N/A"
+                      ? undefined
+                      : structuredScores.cashIndex,
+                  salesDrivers: data.salesDrivers || record.salesDrivers,
+                  salesDriveScore: structuredScores.salesDriveScore,
+                  aiAnalysisText: formattedReport,
+                }
+              : record
+          )
+        );
+      }
+
       // Transition to Step 3 for operator inspection and editing
       setCurrentStep(3);
     } catch (err: any) {
-      console.warn("Audit Step 1->2 AI analysis fallback triggered:", err);
-      const fallbackReport = generateFallbackReportWithShopperData(auditData, transcript);
-      setAuditReport(fallbackReport);
-      setOriginalReport(fallbackReport);
-      setCurrentStep(3);
+      console.warn("Audit Step 1->2 AI analysis failed:", err);
+      // Strict rule: Do NOT generate fake report, do NOT set default scores, stay on Step 1 with user error notice
+      setCurrentStep(1);
+      const detailMsg = err?.message || "Ошибка соединения с сервисом ИИ или превышен лимит запросов.";
+      setErrorMessage(`ИИ-анализ не выполнен. Данные анкеты и аудиозапись сохранены. Повторите анализ или обратитесь к администратору. Причина: ${detailMsg}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -378,16 +483,25 @@ export default function App() {
 
     let updatedReport = auditReport ? updateReportMetadata(auditReport, auditData, originalMeta) : null;
     if (updatedReport) {
-      updatedReport = highlightManualEdits(updatedReport, originalReport);
       setAuditReport(updatedReport);
     }
   };
 
-  // STEP 4: Submit Final Report to Manager, Add to Registry, and Clear Form for New Audit
+  // STEP 4: Submit Final Report to Manager, Add/Update in Registry, and Clear Form
   const handleSubmitAndClose = () => {
+    const sourceRecord = activeAuditRecordId
+      ? auditRecords.find((record) => record.id === activeAuditRecordId)
+      : undefined;
+    if (!auditData.primaryApproverId) {
+      setErrorMessage("Выберите руководителя, которому будет направлена проверка.");
+      return;
+    }
+    if (!sourceRecord?.criteria?.length) {
+      setErrorMessage("Нельзя сформировать финальный акт без структурированных результатов BPV. Проверьте критерии на шаге корректировки.");
+      return;
+    }
     let updatedReport = auditReport ? updateReportMetadata(auditReport, auditData, originalMeta) : null;
     if (updatedReport) {
-      updatedReport = highlightManualEdits(updatedReport, originalReport);
       setAuditReport(updatedReport);
     }
 
@@ -400,28 +514,33 @@ export default function App() {
     });
 
     const reportStr = updatedReport || auditReport || "";
-    const bpvMatch = reportStr.match(/BPV INDEX.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) || reportStr.match(/(?:BPV|Service Index).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
-    const speechMatch = reportStr.match(/РЕЧЕВОЙ ИНДЕКС.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) || reportStr.match(/(?:Речевой|Speech|Диалог).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
-    const salesMatch = reportStr.match(/SALES DRIVE.*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i) || reportStr.match(/(?:Sales Drive|коммерческой).*?:?\s*\*?\*?\s*(\d+(?:\.\d+)?)\s*%/i);
+    const cashViolation =
+      auditData.checkType === "1. Контрольная закупка" &&
+      sourceRecord.cashData?.source !== undefined &&
+      (sourceRecord.cashData.fiscalCheckIssued === "Нет" ||
+        sourceRecord.cashData.cashDisciplineObserved === "Нет");
+    const scores = calculateAuditScores(
+      auditData.checkType || sourceRecord.checkType,
+      sourceRecord.criteria,
+      cashViolation
+    );
+    const extractedBpv = scores.bpvScore;
+    const extractedSales = scores.salesDriveScore;
 
-    const extractedBpv = bpvMatch ? parseFloat(bpvMatch[1]) : 92;
-    const extractedSpeech = speechMatch ? parseFloat(speechMatch[1]) : 92;
-    const extractedSales = salesMatch ? parseFloat(salesMatch[1]) : 85;
+    const targetId = activeAuditRecordId || `AUD-2026-${String(auditRecords.length + 1).padStart(3, "0")}`;
 
-    const auditId = `AUD-2026-${String(auditRecords.length + 1).padStart(3, "0")}`;
-
-    // Create record in Persistent Audit Registry
     const newRecord: AuditRecord = {
-      id: auditId,
+      id: targetId,
       date: auditData.date || new Date().toLocaleDateString("ru-RU"),
       startTime: auditData.startTime || "10:00",
       endTime: auditData.endTime || "10:45",
       brand: auditData.brand || "Orange",
       branch: auditData.branch || "Филиал №1",
       city: auditData.city || "Кишинев",
-      group: auditData.region || auditData.group || "Центральный регион",
-      region: auditData.region || auditData.group || "Центральный регион",
-      manager: auditData.manager || "Петров В.В.",
+      group: auditData.region || auditData.group || "Регион Центр",
+      region: auditData.region || auditData.group || "Регион Центр",
+      manager: auditData.manager || "",
+      primaryApproverId: auditData.primaryApproverId,
       category: auditData.category || "Смартфоны",
       target: auditData.target || "Консультация BPV",
       result: auditData.result || `Оценка визита: ${extractedBpv}%`,
@@ -429,12 +548,29 @@ export default function App() {
       checkType: auditData.checkType || "1. Контрольная закупка",
       employeeCode: auditData.employeeCode || "Консультант",
       inspector: auditData.inspector || currentUser?.name || "Инспектор ОКК",
+      shopperName: sourceRecord.shopperName,
+      shopperId: sourceRecord.shopperId,
+      shopperData: sourceRecord.shopperData,
+      shopperSubmissionText: sourceRecord.shopperSubmissionText || shopperSubmissionText || undefined,
+      machineTranscript: transcript || undefined,
+      auditorTranscript: transcript || undefined,
+      aiAnalysisText: originalReport || undefined,
+      auditorFinalReport: reportStr,
+      criteria: scores.criteria,
+      calculation: scores.calculation,
+      salesDrivers: sourceRecord.salesDrivers || scores.salesDrivers,
+      cashData: sourceRecord.cashData,
+      auditorName: currentUser?.name,
+      auditorId: currentUser?.id,
       bpvScore: extractedBpv,
-      speechScore: extractedSpeech,
+      speechScore: extractedBpv,
       salesDriveScore: extractedSales,
       stopFactors: 0,
-      reportSummary: "Автоматически сгенерированный и направленный на согласование Акт оценки ОКК.",
-      fullReportText: updatedReport || auditReport || "",
+      reportSummary: `Акт оценки ОКК. Итоговый балл BPV: ${extractedBpv}%.`,
+      fullReportText: reportStr,
+      audioFileName: sourceRecord.audioFileName || audioFileName || undefined,
+      audioData: sourceRecord.audioData || audioBase64 || undefined,
+      audioUrl: sourceRecord.audioUrl || audioBase64 || undefined,
       approvalStatus: "PENDING_APPROVAL",
       approvalHistory: [
         {
@@ -446,13 +582,23 @@ export default function App() {
       ],
     };
 
-    setAuditRecords((prev) => [newRecord, ...prev]);
+    setAuditRecords((prev) => {
+      const idx = prev.findIndex((r) => r.id === targetId);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...newRecord };
+        return copy;
+      }
+      return [newRecord, ...prev];
+    });
 
     // Send Notification to Manager
+    const approver = users.find((user) => user.id === auditData.primaryApproverId);
     createNotification({
-      recipientName: auditData.manager || "Петров В.В.",
+      recipientName: approver?.name || auditData.manager || "Руководитель",
+      recipientId: approver?.id,
       recipientRole: "manager",
-      recipientEmail: "manager@company.com",
+      recipientEmail: approver?.email,
       title: `Новый Акт оценки ОКК (${newRecord.id}) на согласовании`,
       message: `Аудитор ${newRecord.inspector} сформировал Акт ${newRecord.id} (${newRecord.brand}, ${newRecord.city}). Ознакомьтесь с результатами и утвердите их или отправьте на пересмотр.`,
       auditId: newRecord.id,
@@ -463,7 +609,9 @@ export default function App() {
 
     setNotifications(loadNotifications());
 
-    // Reset workflow to clean fields for brand new audit
+    // Reset workflow
+    setActiveAuditRecordId(null);
+    setShopperSubmissionText("");
     setCurrentStep(1);
     setAuditReport(null);
     setOriginalReport(null);
@@ -485,11 +633,13 @@ export default function App() {
       standards: AUDIT_PRESETS[0].auditData.standards,
     });
 
-    alert(`Акт №${auditId} успешно отправлен руководителю (${auditData.manager || "Петров В.В."}) и внесен в Реестр проверок!\n\nФорма очищена для проведения новой проверки.`);
+    alert(`Акт №${targetId} успешно отправлен руководителю (${approver?.name || auditData.manager}) и сохранен в Реестре проверок!\n\nФорма очищена для проведения новой проверки.`);
   };
 
   // Reset entire workflow back to Step 1
   const handleResetWorkflow = () => {
+    setActiveAuditRecordId(null);
+    setShopperSubmissionText("");
     setCurrentStep(1);
     setAuditReport(null);
     setOriginalReport(null);
@@ -499,6 +649,20 @@ export default function App() {
 
   // Handle Loading a Shopper Visit Record into the Audit Form (Autofill)
   const handleLoadShopperVisitToForm = (record: AuditRecord) => {
+    if (currentUser?.role === "shopper") {
+      if (
+        record.shopperId !== currentUser.id ||
+        record.approvalStatus !== "SHOPPER_CLARIFICATION_REQUESTED"
+      ) {
+        setErrorMessage("После отправки шоппер видит только статус. Редактирование доступно лишь по запросу уточнения аудитора.");
+        return;
+      }
+      setShopperEditingRecord(record);
+      setAuditSubView("form");
+      return;
+    }
+    setActiveAuditRecordId(record.id);
+
     const shopperMeta: AuditFormData = {
       date: record.date || new Date().toISOString().split("T")[0],
       startTime: record.startTime || "14:00",
@@ -507,7 +671,7 @@ export default function App() {
       branch: record.branch || "",
       city: record.city || "",
       employeeCode: record.employeeCode || "",
-      inspector: record.inspector || currentUser?.name || "",
+      inspector: record.inspector || record.shopperName || currentUser?.name || "",
       checkType: record.checkType || "2. Mystery shopper (без покупки)",
       category: record.category || "Смартфоны и портативная техника",
       target: record.target || "Оценка сервисных стандартов и консультанта по визиту тайного покупателя",
@@ -523,14 +687,18 @@ export default function App() {
     setAuditData(shopperMeta);
     setOriginalMeta(shopperMeta);
 
-    setTranscript(record.fullReportText || record.reportSummary || "");
+    setShopperSubmissionText(record.shopperSubmissionText || (record.shopperData ? `Анкета шоппера: ${record.shopperData.shopperName}` : ""));
+    setTranscript(record.auditorTranscript || record.machineTranscript || "");
+
     if (record.audioFileName) {
       setAudioFileName(record.audioFileName);
     } else {
       setAudioFileName(null);
     }
-    if (record.audioUrl) {
-      setAudioBase64(record.audioUrl);
+    if (record.audioData || record.audioUrl) {
+      setAudioBase64(record.audioData || record.audioUrl || null);
+    } else {
+      setAudioBase64(null);
     }
 
     setCurrentStep(1);
@@ -538,42 +706,54 @@ export default function App() {
   };
 
   // Handle Shopper Visit Form Submission
-  const handleShopperSubmitVisit = (recordData: Omit<AuditRecord, "id">) => {
-    const newId = `AUD-${Date.now().toString().slice(-4)}`;
+  const handleShopperSubmitVisit = (recordData: Partial<AuditRecord>) => {
+    const newId = recordData.id || `AUD-${Date.now().toString().slice(-4)}`;
     const newRecord: AuditRecord = {
-      ...recordData,
       id: newId,
+      date: new Date().toLocaleDateString("ru-RU"),
+      brand: "Orange",
+      branch: "Филиал №1",
+      city: "Кишинев",
+      checkType: "2. Mystery shopper (без покупки)",
+      employeeCode: "Консультант",
+      inspector: currentUser?.name || "Тайный Покупатель",
+      bpvScore: 0,
+      speechScore: 0,
+      salesDriveScore: 0,
+      stopFactors: 0,
+      reportSummary: "Анкета визита тайного покупателя",
+      approvalStatus:
+        shopperEditingRecord?.approvalStatus === "SHOPPER_CLARIFICATION_REQUESTED"
+          ? "SHOPPER_RESUBMITTED"
+          : "SHOPPER_SUBMITTED",
+      ...recordData,
     };
 
-    setAuditRecords((prev) => [newRecord, ...prev]);
+    setAuditRecords((prev) => {
+      const idx = prev.findIndex((r) => r.id === newId);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = newRecord;
+        return copy;
+      }
+      return [newRecord, ...prev];
+    });
 
-    // Send Notification to Inspectors / Auditors
+    // Send Notification ONLY to Inspectors / Auditors
     createNotification({
-      recipientName: "Иванова А.С. (Проверяющий)",
-      recipientRole: "inspector",
+      recipientName: "Проверяющий ОКК",
+      recipientRole: "auditor",
       recipientEmail: "inspector@company.com",
       title: `Новый визит Тайного Покупателя (${newId})`,
-      message: `Шоппер ${newRecord.inspector} передал отчет и аудиозапись по филиалу ${newRecord.branch} (${newRecord.city}). Данные готовы к автозаполнению в Конструкторе.`,
+      message: `Шоппер ${newRecord.inspector || newRecord.shopperName} передал анкету и аудиозапись по филиалу ${newRecord.branch} (${newRecord.city}). Перейдите к формированию Акта оценки ОКК.`,
       auditId: newId,
       type: "NEW_AUDIT_FOR_APPROVAL",
       emailSubject: `[ОКК] Поступил новый отчет тайного покупателя: ${newId}`,
-      emailBody: `Уважаемый(ая) Проверяющий/Аудитор!\n\nТайный покупатель ${newRecord.inspector} передал отчет о визите в филиал ${newRecord.branch} (${newRecord.city}).\nКонсультант: ${newRecord.employeeCode}\nПрикрепленное аудио: ${newRecord.audioFileName || "Запись визита прикреплена"}\n\nВы можете запустить автозаполнение в Конструкторе Акта, прослушать запись и внести ручные корректировки.`,
-    });
-
-    // Send Notification to Managers
-    createNotification({
-      recipientName: "Петров В.В. (Руководитель)",
-      recipientRole: "manager",
-      recipientEmail: "manager@company.com",
-      title: `Новый визит Тайного Покупателя (${newId})`,
-      message: `Шоппер ${newRecord.inspector} зафиксировал визит в филиал ${newRecord.branch} (${newRecord.city}, ${newRecord.brand}). Оценка: ${newRecord.bpvScore}%.`,
-      auditId: newId,
-      type: "NEW_AUDIT_FOR_APPROVAL",
-      emailSubject: `[ОКК] Новый отчет тайного покупателя: ${newId}`,
-      emailBody: `Уважаемый(ая) Руководитель!\n\nТайный покупатель ${newRecord.inspector} загрузил отчет о визите в филиал ${newRecord.branch} (${newRecord.city}).\nОценка визита: ${newRecord.bpvScore}%\nКонсультант: ${newRecord.employeeCode}\n\nОзнакомьтесь с отчетом в Реестре проверок.`,
+      emailBody: `Уважаемый(ая) Проверяющий/Аудитор!\n\nТайный покупатель ${newRecord.inspector} передал отчет о визите в филиал ${newRecord.branch} (${newRecord.city}).\nПрикрепленное аудио: ${newRecord.audioFileName || "Запись прикреплена"}\n\nВы можете запустить ИИ-анализ, проверить критерии и сформировать Акт оценки ОКК.`,
     });
 
     setNotifications(loadNotifications());
+    setShopperEditingRecord(null);
   };
 
   // Render Login Page if user is not authenticated
@@ -660,6 +840,8 @@ export default function App() {
                   onSubmitVisit={handleShopperSubmitVisit}
                   onGoToRegistry={() => setAuditSubView("registry")}
                   users={users}
+                  editingRecord={shopperEditingRecord}
+                  onCancelEdit={() => setShopperEditingRecord(null)}
                 />
               ) : (
                 <AuditForm

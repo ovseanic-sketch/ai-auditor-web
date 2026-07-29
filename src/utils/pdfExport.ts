@@ -4,6 +4,7 @@
  */
 
 import { cleanMarkdownReport, updateReportMetadata } from "./cleanMarkdown";
+import { ShopperFormData, DisputedPointItem, InspectorEditHistoryItem } from "../types";
 
 export interface ExportPdfOptions {
   title?: string;
@@ -18,6 +19,14 @@ export interface ExportPdfOptions {
   category?: string;
   target?: string;
   reportContent: string;
+  shopperData?: ShopperFormData;
+  disputedPoints?: DisputedPointItem[];
+  inspectorEdits?: InspectorEditHistoryItem[];
+  managerComment?: string;
+  bpvScore?: number;
+  salesDriveScore?: number;
+  cashScore?: number | "N/A";
+  criticalViolationsCount?: number;
 }
 
 export function exportAuditReportToPdf(options: ExportPdfOptions) {
@@ -34,6 +43,14 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
     category,
     target,
     reportContent,
+    shopperData,
+    disputedPoints,
+    inspectorEdits,
+    managerComment,
+    bpvScore,
+    salesDriveScore,
+    cashScore,
+    criticalViolationsCount,
   } = options;
 
   // Create a printable HTML document in an isolated frame/window
@@ -61,7 +78,7 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
     target,
   });
 
-  const cleanedContent = cleanMarkdownReport(updatedReportText);
+  const cleanedContent = cleanMarkdownReport(updatedReportText, bpvScore);
 
   // Convert markdown to custom HTML with the exact corporate OKK layout
   const formattedBody = formatMarkdownToOkkHtml(cleanedContent, {
@@ -72,6 +89,72 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
     employeeCode,
     inspector,
   });
+
+  const shopperSectionHtml = shopperData
+    ? `
+      <div class="shopper-card" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:16px; margin:20px 0; page-break-inside:avoid;">
+        <div style="font-weight:800; font-size:10pt; color:#0f172a; margin-bottom:10px; border-bottom:1px solid #e2e8f0; padding-bottom:6px; text-transform:uppercase;">
+          ДАННЫЕ И ВПЕЧАТЛЕНИЯ ТАЙНОГО ПОКУПАТЕЛЯ
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; font-size:8.5pt;">
+          <div>
+            <strong>А. Наблюдаемые данные:</strong>
+            <ul style="margin:4px 0 0 16px; padding:0; color:#334155;">
+              <li>Униформа: ${shopperData.uniformStatus === "standard" ? "Соответствует" : "Замечания"}</li>
+              <li>Бейдж: ${shopperData.badgeStatus === "present" ? "Присутствует" : "Отсутствует"}</li>
+              <li>Опрятность: ${shopperData.neatnessStatus === "neat" ? "Опрятный" : "Замечания"}</li>
+              <li>Доступность персонала: ${shopperData.staffAvailability === "immediate" ? "Доступен сразу" : "Пришлось искать"}</li>
+              <li>Состояние зала: Чистота ${shopperData.cleanlinessRating}/5, Выкладка ${shopperData.merchandisingRating}/5</li>
+            </ul>
+          </div>
+          <div>
+            <strong>Б. Впечатления и аудио:</strong>
+            <div style="margin-top:4px; color:#334155;">
+              <div><strong>Понравилось:</strong> ${shopperData.whatLiked || "Ориентирован на клиента"}</div>
+              <div><strong>Замечания:</strong> ${shopperData.whatDisliked || "Без существенных замечаний"}</div>
+              <div><strong>Аудиофайл:</strong> ${shopperData.audioFileName || "Прикреплен к карточке"}</div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:7.5pt; color:#64748b; font-style:italic; margin-top:8px;">
+          * Субъективные впечатления шоппера приведены для справки и не являются автоматическим нарушением BPV без аудиоподтверждения или решения ОКК.
+        </div>
+      </div>
+    `
+    : "";
+
+  const inspectorCommentHtml = managerComment
+    ? `
+      <div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px; padding:12px; margin:16px 0; page-break-inside:avoid;">
+        <div style="font-weight:800; font-size:8.5pt; color:#0369a1; text-transform:uppercase; margin-bottom:4px;">
+          КОММЕНТАРИЙ И ЗАКЛЮЧЕНИЕ ПРОВЕРЯЮЩЕГО ОКК:
+        </div>
+        <div style="font-size:8.5pt; color:#0c4a6e;">
+          ${managerComment}
+        </div>
+      </div>
+    `
+    : "";
+
+  const bpvDisplay = bpvScore === undefined ? "N/A" : `${bpvScore}%`;
+  const cashDisplay =
+    isMysteryShopper || cashScore === "N/A"
+      ? "N/A"
+      : cashScore === undefined
+      ? "N/A"
+      : `${cashScore}%`;
+  const salesDisplay = salesDriveScore === undefined ? "N/A" : `${salesDriveScore}%`;
+  const criticalDisplay =
+    criticalViolationsCount === undefined ? "N/A" : String(criticalViolationsCount);
+  const kpiSummaryHtml = `
+    <h2 class="section-title">Сводные показатели качества</h2>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">BPV Index (сервис)</div><div class="kpi-value">${bpvDisplay}</div><span class="kpi-status-tag ${bpvScore !== undefined && bpvScore >= 85 ? "success" : "warning"}">${bpvScore === undefined ? "НЕТ ДАННЫХ" : bpvScore >= 85 ? "ЦЕЛЬ ≥85%" : "НИЖЕ ЦЕЛИ"}</span></div>
+      <div class="kpi-card"><div class="kpi-label">Cash Index (касса)</div><div class="kpi-value">${cashDisplay}</div><span class="kpi-status-tag ${cashDisplay === "100%" ? "success" : "warning"}">${cashDisplay === "N/A" ? "НЕ ПРИМЕНИМО / НЕТ ДАННЫХ" : "ЦЕЛЬ 100%"}</span></div>
+      <div class="kpi-card"><div class="kpi-label">Sales Drivers</div><div class="kpi-value">${salesDisplay}</div><span class="kpi-status-tag ${salesDriveScore !== undefined && salesDriveScore >= 70 ? "success" : "warning"}">НЕ ВЛИЯЕТ НА BPV</span></div>
+      <div class="kpi-card"><div class="kpi-label">Критич. нарушения</div><div class="kpi-value ${criticalViolationsCount && criticalViolationsCount > 0 ? "danger" : ""}">${criticalDisplay}</div><span class="kpi-status-tag ${criticalViolationsCount === 0 ? "success" : "warning"}">${criticalViolationsCount === undefined ? "НЕТ ДАННЫХ" : criticalViolationsCount === 0 ? "STOP-ФАКТОРОВ НЕТ" : "ЕСТЬ STOP-ФАКТОР"}</span></div>
+    </div>
+  `;
 
   const printDocumentHtml = `
 <!DOCTYPE html>
@@ -499,7 +582,10 @@ export function exportAuditReportToPdf(options: ExportPdfOptions) {
     </div>
 
     <div class="report-body">
+      ${kpiSummaryHtml}
+      ${shopperSectionHtml}
       ${formattedBody}
+      ${inspectorCommentHtml}
     </div>
 
     <div class="signatures-card">

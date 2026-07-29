@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { AuditFormData, PresetAuditSample, UserAccount, AuditRecord } from "../types";
+import { ExactTimePicker } from "./ExactTimePicker";
 import { AUDIT_PRESETS } from "../data/auditPresets";
 import { loadDictionaries, saveDictionaries, Dictionaries } from "../utils/dictionaryStore";
 import { getMonthNameFromDate, generateMonthOptions } from "../utils/monthUtils";
@@ -59,26 +60,6 @@ interface AuditFormProps {
   onLoadVisitRecord?: (record: AuditRecord) => void;
 }
 
-const TIME_SLOTS = Array.from({ length: 96 }, (_, i) => {
-  const h = Math.floor(i / 4).toString().padStart(2, "0");
-  const m = ((i % 4) * 15).toString().padStart(2, "0");
-  return `${h}:${m}`;
-});
-
-const CITY_OPTIONS = [
-  "Кишинёв",
-  "Бельцы",
-  "Тирасполь",
-  "Комрат",
-  "Кагул",
-  "Бишкек",
-  "Ош",
-  "Алматы",
-  "Астана",
-  "Москва",
-  "Санкт-Петербург",
-];
-
 const formatTimeSlot = (val?: string) => {
   if (!val) return "10:00";
   const parts = val.trim().split(":");
@@ -135,29 +116,21 @@ export const AuditForm: React.FC<AuditFormProps> = ({
 
   useEffect(() => {
     setDictionaries(loadDictionaries());
+    const refresh = () => setDictionaries(loadDictionaries());
+    window.addEventListener("okk-dictionaries-updated", refresh);
+    return () => window.removeEventListener("okk-dictionaries-updated", refresh);
   }, []);
 
-  // Auto-populate Shopper/Inspector name and Manager from system users
+  // The auditor identity may be filled automatically. The approver must be
+  // selected explicitly by the auditor and is stored by immutable user id.
   useEffect(() => {
     if (currentUser?.name) {
       setAuditData((prev) => {
-        const defaultManager =
-          users?.find((u) => u.role === "manager" || u.role === "admin")?.name ||
-          "Петров В.В.";
-        
-        let needsUpdate = false;
         const newInspector = prev.inspector || currentUser.name;
-        const newManager = prev.manager || defaultManager;
-
-        if (prev.inspector !== newInspector || prev.manager !== newManager) {
-          needsUpdate = true;
-        }
-
-        if (needsUpdate) {
+        if (prev.inspector !== newInspector) {
           return {
             ...prev,
             inspector: newInspector,
-            manager: newManager,
           };
         }
         return prev;
@@ -403,7 +376,7 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                       <div className="flex items-center justify-between gap-1 mt-1.5 pt-1 border-t border-slate-800/80 text-[10px]">
                         <span className="text-slate-400">Шоппер: {visit.inspector}</span>
                         <span className="text-emerald-400 font-semibold group-hover:underline flex items-center gap-0.5">
-                          <span>Автозаполнить</span>
+                          <span>Загрузить анкету</span>
                           <ArrowRight className="w-3 h-3" />
                         </span>
                       </div>
@@ -644,57 +617,21 @@ export const AuditForm: React.FC<AuditFormProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Время начала <span className="text-red-400">*</span></span>
-                </label>
-                <select
-                  name="startTime"
-                  value={formatTimeSlot(auditData.startTime || auditData.time)}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setAuditData((prev) => ({ ...prev, startTime: val, time: val }));
-                  }}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-semibold"
-                >
-                  {auditData.startTime && !TIME_SLOTS.includes(formatTimeSlot(auditData.startTime)) && (
-                    <option value={formatTimeSlot(auditData.startTime)} className="bg-slate-900 text-slate-100 font-medium">
-                      {formatTimeSlot(auditData.startTime)}
-                    </option>
-                  )}
-                  {TIME_SLOTS.map((slot) => (
-                    <option key={slot} value={slot} className="bg-slate-900 text-slate-100 font-medium">
-                      {slot}
-                    </option>
-                  ))}
-                </select>
+                <ExactTimePicker
+                  label="Время начала"
+                  value={auditData.startTime || auditData.time || "10:00"}
+                  onChange={(val) => setAuditData((prev) => ({ ...prev, startTime: val, time: val }))}
+                  required
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Время окончания <span className="text-red-400">*</span></span>
-                </label>
-                <select
-                  name="endTime"
-                  value={formatTimeSlot(auditData.endTime || "10:45")}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setAuditData((prev) => ({ ...prev, endTime: val }));
-                  }}
-                  className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-semibold"
-                >
-                  {auditData.endTime && !TIME_SLOTS.includes(formatTimeSlot(auditData.endTime)) && (
-                    <option value={formatTimeSlot(auditData.endTime)} className="bg-slate-900 text-slate-100 font-medium">
-                      {formatTimeSlot(auditData.endTime)}
-                    </option>
-                  )}
-                  {TIME_SLOTS.map((slot) => (
-                    <option key={slot} value={slot} className="bg-slate-900 text-slate-100 font-medium">
-                      {slot}
-                    </option>
-                  ))}
-                </select>
+                <ExactTimePicker
+                  label="Время окончания"
+                  value={auditData.endTime || "10:45"}
+                  onChange={(val) => setAuditData((prev) => ({ ...prev, endTime: val }))}
+                  required
+                />
               </div>
             </div>
 
@@ -727,9 +664,6 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                       {b}
                     </option>
                   ))}
-                  {auditData.brand && !dictionaries.brands.includes(auditData.brand) && (
-                    <option value={auditData.brand}>{auditData.brand}</option>
-                  )}
                 </select>
               </div>
 
@@ -755,14 +689,11 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                   onChange={handleInputChange}
                   className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none transition-all cursor-pointer font-medium"
                 >
-                  {Array.from(new Set([...dictionaries.cities, ...CITY_OPTIONS])).map((c) => (
+                  {dictionaries.cities.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
                   ))}
-                  {auditData.city && !dictionaries.cities.includes(auditData.city) && !CITY_OPTIONS.includes(auditData.city) && (
-                    <option value={auditData.city}>{auditData.city}</option>
-                  )}
                 </select>
               </div>
 
@@ -867,25 +798,24 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1">Руководитель</label>
                   <select
-                    name="manager"
-                    value={auditData.manager || ""}
-                    onChange={handleInputChange}
+                    name="primaryApproverId"
+                    value={auditData.primaryApproverId || ""}
+                    onChange={(event) => {
+                      const selected = users?.find((user) => user.id === event.target.value);
+                      setAuditData((previous) => ({
+                        ...previous,
+                        primaryApproverId: selected?.id || "",
+                        manager: selected?.name || "",
+                      }));
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none cursor-pointer font-medium"
                   >
                     <option value="">— Выберите руководителя —</option>
-                    {(users?.filter((u) => u.role === "manager") || []).map((m) => (
-                      <option key={m.id} value={m.name}>
-                        {m.name} {m.position ? `(${m.position})` : ""}
+                    {(users?.filter((u) => u.role === "manager" && u.status === "active") || []).map((manager) => (
+                      <option key={manager.id} value={manager.id}>
+                        {manager.name} {manager.position ? `(${manager.position})` : ""}
                       </option>
                     ))}
-                    {(users?.filter((u) => u.role === "admin") || []).map((a) => (
-                      <option key={a.id} value={a.name}>
-                        {a.name} (Администратор)
-                      </option>
-                    ))}
-                    {(!users || users.filter((u) => u.role === "manager" || u.role === "admin").length === 0) && (
-                      <option value="Петров В.В.">Петров В.В. (Руководитель филиала)</option>
-                    )}
                   </select>
                 </div>
 
@@ -1105,7 +1035,7 @@ export const AuditForm: React.FC<AuditFormProps> = ({
                   <UserCheck className="w-4 h-4 text-emerald-400" />
                   <span>Получатель отчёта:</span>
                   <strong className="text-emerald-300 font-bold">
-                    {auditData.manager || "Петров В.В. (Руководитель)"}
+                    {auditData.manager || "Руководитель не выбран"}
                   </strong>
                 </div>
                 <h4 className="text-sm font-bold text-white">

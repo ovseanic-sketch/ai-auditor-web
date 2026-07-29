@@ -1,23 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { cleanMarkdownReport } from "../utils/cleanMarkdown";
 
-const STORAGE_KEY = "user_gemini_api_key";
-
 export function getStoredApiKey(): string {
-  if (typeof window !== "undefined") {
-    return localStorage.getItem(STORAGE_KEY) || import.meta.env.VITE_GEMINI_API_KEY || "";
-  }
-  return import.meta.env.VITE_GEMINI_API_KEY || "";
+  return "";
 }
 
-export function setStoredApiKey(key: string): void {
-  if (typeof window !== "undefined") {
-    if (key.trim()) {
-      localStorage.setItem(STORAGE_KEY, key.trim());
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }
+export function setStoredApiKey(_key: string): void {
+  throw new Error("API-ключ настраивается только на сервере через GEMINI_API_KEY.");
 }
 
 function getGeminiClient(apiKeyInput?: string) {
@@ -46,36 +35,43 @@ export async function analyzeMysteryShopperClient({
   audioBase64,
   audioMimeType,
   customApiKey,
-}: AnalyzeParams): Promise<{ success: boolean; report: string; extractedMeta?: any; modelUsed: string }> {
-  // 1. First try direct client-side call if API key exists or provided
-  const activeKey = customApiKey?.trim() || getStoredApiKey();
+}: AnalyzeParams): Promise<{ success: boolean; report: string; extractedMeta?: any; criteria?: any[]; salesDrivers?: any[]; modelUsed: string }> {
+  const activeKey = "";
+
+  // 1. First try server-side route (/api/analyze-mystery-shopper)
+  try {
+    const res = await fetch("/api/analyze-mystery-shopper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        auditData,
+        transcript,
+        audioBase64,
+        audioMimeType,
+      }),
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("Не удалось разобрать ответ сервера при ИИ-анализе.");
+    }
+    if (res.ok && data.success) {
+      return data;
+    }
+    if (data?.error) throw new Error(data.error);
+  } catch (serverErr: any) {
+    console.warn("Server AI analysis route error, checking direct client fallback:", serverErr);
+    // If the server returned a valid business or API key error, throw it so user gets actionable feedback
+    if (serverErr.message && !serverErr.message.includes("404") && !serverErr.message.includes("Failed to fetch")) {
+      throw serverErr;
+    }
+  }
 
   if (!activeKey) {
-    // If no client key is available, try server fallback if running fullstack
-    try {
-      const res = await fetch("/api/analyze-mystery-shopper", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auditData, transcript, audioBase64, audioMimeType }),
-      });
-      const text = await res.text();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error("Не удалось разобрать ответ сервера. Укажите Ваш API ключ Gemini.");
-      }
-      if (res.ok && data.success) {
-        return data;
-      }
-      if (data?.error) throw new Error(data.error);
-    } catch (serverErr: any) {
-      if (serverErr.message && !serverErr.message.includes("404")) {
-        // throw serverErr;
-      }
-    }
     throw new Error(
-      "Для прямой работы из браузера без сервера укажите Ваш API ключ Gemini в верхнем поле настройки ключа."
+      "API ключ Gemini не обнаружен на сервере и в браузере. Пожалуйста, укажите Ваш GEMINI_API_KEY в настройках вверху экрана."
     );
   }
 
@@ -173,15 +169,38 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
     "result": "Результат визита",
     "comment": "Краткое примечание",
     "bpvScore": 93.0
-  }
+  },
+  "criteria": [
+    {
+      "id": "contact_greeting",
+      "status": "Соблюдено",
+      "earnedPoints": 40,
+      "explanation": "Наблюдаемый факт",
+      "quote": "Цитата на исходном языке",
+      "timecode": "00:15",
+      "confidence": "высокий",
+      "source": "аудио"
+    }
+  ],
+  "salesDrivers": [
+    {
+      "id": "depth_of_needs",
+      "status": "Проявлен",
+      "points": 2,
+      "explanation": "Наблюдаемый факт"
+    }
+  ]
 }
 \`\`\`
+
+В техническом JSON верни по одному объекту для каждого официального критерия и каждого Sales Driver. Не выставляй соблюдение без доказательства. Если данных недостаточно, используй статус «Не применимо (N/A)» или низкую уверенность. Кассовые ответы разрешено брать только из ручных данных анкеты, но не выводить из аудио.
 
 Выдавай отчёт профессиональным, структурированным, доказательным языком на русском языке.`;
 
   const contentsParts: any[] = [];
+  let hasValidAudio = false;
 
-  if (audioBase64) {
+  if (audioBase64 && typeof audioBase64 === "string" && audioBase64.length > 50) {
     let mimeType = audioMimeType || "audio/mp3";
     let base64Data = audioBase64;
     if (audioBase64.includes(";base64,")) {
@@ -191,20 +210,28 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
       base64Data = parts[1];
     }
 
-    contentsParts.push({
-      inlineData: {
-        data: base64Data,
-        mimeType,
-      },
-    });
-    contentsParts.push({
-      text: `${systemPrompt}\n\nПроанализируй прикрепленную аудиозапись контрольной закупке согласно всем указанным требованиям.`,
-    });
-  } else {
-    contentsParts.push({
-      text: `${systemPrompt}\n\nВот стенограмма / текстовая запись визита для анализа:\n\"\"\"\n${transcript}\n\"\"\"`,
-    });
+    if (!base64Data.startsWith("http") && !base64Data.startsWith("blob:")) {
+      contentsParts.push({
+        inlineData: {
+          data: base64Data,
+          mimeType,
+        },
+      });
+      hasValidAudio = true;
+    }
   }
+
+  let textPrompt = `${systemPrompt}\n\n`;
+  if (transcript && typeof transcript === "string" && transcript.trim()) {
+    textPrompt += `Текстовая запись / транскрипция визита:\n\"\"\"\n${transcript}\n\"\"\"\n\n`;
+  }
+  if (hasValidAudio) {
+    textPrompt += `Проанализируй прикрепленную аудиозапись визита и сопоставь с текстом транскрипта (при наличии).`;
+  } else if (!transcript || !transcript.trim()) {
+    throw new Error("Предоставьте расшифровку (текст) диалога или корректную аудиозапись визита.");
+  }
+
+  contentsParts.push({ text: textPrompt });
 
   const response = await ai.models.generateContent({
     model: "gemini-3.6-flash",
@@ -216,12 +243,16 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
   const reportText = response.text || "Не удалось сгенерировать отчёт анализа.";
 
   let extractedMeta: any = null;
+  let criteria: any[] | undefined;
+  let salesDrivers: any[] | undefined;
   try {
-    const jsonMatch = reportText.match(/```json\s*(\{[\s\S]*?"extractedMeta"[\s\S]*?\})\s*```/);
+    const jsonMatch = reportText.match(/```json\s*([\s\S]*?)```/);
     if (jsonMatch && jsonMatch[1]) {
       const parsed = JSON.parse(jsonMatch[1]);
       if (parsed && parsed.extractedMeta) {
         extractedMeta = parsed.extractedMeta;
+        criteria = Array.isArray(parsed.criteria) ? parsed.criteria : undefined;
+        salesDrivers = Array.isArray(parsed.salesDrivers) ? parsed.salesDrivers : undefined;
       }
     }
   } catch (e) {
@@ -235,6 +266,8 @@ ${auditData.standards || "Стандарт компании BPV (Этапы 0-7)
     success: true,
     report: cleanedReport,
     extractedMeta,
+    criteria,
+    salesDrivers,
     modelUsed: "gemini-3.6-flash",
   };
 }
