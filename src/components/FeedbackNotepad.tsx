@@ -11,14 +11,14 @@ import {
   Sparkles,
   AlertCircle,
 } from "lucide-react";
+import {
+  deleteFeedbackNote,
+  FeedbackNoteRecord,
+  loadFeedbackNotes,
+  saveFeedbackNote,
+} from "../services/feedbackRepository";
 
-interface FeedbackNote {
-  id: string;
-  createdAt: string;
-  userRole: string;
-  userName: string;
-  text: string;
-}
+type FeedbackNote = FeedbackNoteRecord;
 
 interface FeedbackNotepadProps {
   currentUser?: UserAccount;
@@ -30,36 +30,16 @@ export const FeedbackNotepad: React.FC<FeedbackNotepadProps> = ({ currentUser })
   const [copied, setCopied] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
 
-  // Notes history persisted in localStorage
-  const [notes, setNotes] = useState<FeedbackNote[]>(() => {
-    try {
-      const saved = localStorage.getItem("okk_testing_feedback_notes_v1");
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error("Failed to load feedback notes", e);
-    }
-    return [
-      {
-        id: "note-1",
-        createdAt: new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }),
-        userName: currentUser?.name || "Тестировщик",
-        userRole: currentUser?.role === "admin" ? "Администратор" : currentUser?.role === "manager" ? "Руководитель" : "Проверяющий",
-        text: "Демо-заметка: Все комментарии на Шаге 3 подсвечиваются красным в итоговом акте. Тестирование Реестра и согласования проходит штатно.",
-      },
-    ];
-  });
+  const [notes, setNotes] = useState<FeedbackNote[]>([]);
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("okk_testing_feedback_notes_v1", JSON.stringify(notes));
-    } catch (e) {
-      console.error("Failed to save feedback notes", e);
-    }
-  }, [notes]);
+    loadFeedbackNotes()
+      .then(setNotes)
+      .catch((error) => setStorageError(error instanceof Error ? error.message : "Не удалось загрузить заметки."));
+  }, [currentUser?.id]);
 
-  const handleSaveNote = (e: React.FormEvent) => {
+  const handleSaveNote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!noteText.trim()) return;
 
@@ -85,12 +65,26 @@ export const FeedbackNotepad: React.FC<FeedbackNotepadProps> = ({ currentUser })
 
     setNotes((prev) => [newNote, ...prev]);
     setNoteText("");
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    try {
+      await saveFeedbackNote(newNote, currentUser?.id || "");
+      setSavedSuccess(true);
+      setStorageError(null);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (error) {
+      setNotes((prev) => prev.filter((item) => item.id !== newNote.id));
+      setStorageError(error instanceof Error ? error.message : "Не удалось сохранить заметку.");
+    }
   };
 
-  const handleDeleteNote = (id: string) => {
+  const handleDeleteNote = async (id: string) => {
+    const previous = notes;
     setNotes((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await deleteFeedbackNote(id);
+    } catch (error) {
+      setNotes(previous);
+      setStorageError(error instanceof Error ? error.message : "Не удалось удалить заметку.");
+    }
   };
 
   const handleCopyAllNotes = () => {
@@ -175,6 +169,12 @@ export const FeedbackNotepad: React.FC<FeedbackNotepadProps> = ({ currentUser })
 
       {/* Expanded Content Body */}
       <div className="p-4 sm:p-5 space-y-4 bg-slate-950/60">
+          {storageError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-950/40 p-3 text-xs text-red-200 flex gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {storageError}
+            </div>
+          )}
           {/* Note Input Form */}
           <form onSubmit={handleSaveNote} className="space-y-3">
             <div className="relative">

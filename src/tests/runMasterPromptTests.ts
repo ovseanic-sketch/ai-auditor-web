@@ -45,6 +45,25 @@ export function runMasterPromptTestSuite(): TestResultItem[] {
 
   const mysteryCalc = calculateAuditScores("2. Mystery shopper (без покупки)", []);
   test("Mystery Shopper Cash Index is N/A", mysteryCalc.cashIndex === "N/A", "Mystery Cash Index must be N/A");
+  test(
+    "Mystery Shopper cross-sell is N/A",
+    mysteryCalc.criteria
+      .filter((criterion) => criterion.category === "cross_sell")
+      .every((criterion) => criterion.status === "Не применимо (N/A)" && criterion.maxPoints === 0),
+    "Cross-sell must be excluded only for Mystery Shopping"
+  );
+
+  const controlCrossSell = calculateAuditScores("1. Контрольная закупка", [
+    { id: "cross_selling_accessories", status: "Соблюдено" },
+    { id: "cross_selling_services", status: "Соблюдено" },
+  ]);
+  test(
+    "Control Purchase includes cross-sell in BPV",
+    controlCrossSell.maxApplicablePoints === 20 &&
+      controlCrossSell.totalEarnedPoints === 20 &&
+      controlCrossSell.bpvScore === 100,
+    "Both cross-sell criteria must contribute to Control Purchase BPV"
+  );
 
   // 3. Control Purchase Cash Zeroing (Stop factor)
   const cashViolatedCalc = calculateAuditScores("1. Контрольная закупка", [], true);
@@ -52,6 +71,14 @@ export function runMasterPromptTestSuite(): TestResultItem[] {
     "Cash violation zeros out BPV score",
     cashViolatedCalc.bpvScore === 0 && cashViolatedCalc.cashZeroed === true,
     "Control purchase cash violation must set BPV to 0%"
+  );
+  const audioOnlyCashClaim = calculateAuditScores("1. Контрольная закупка", [
+    { id: "cash_discipline", status: "Нарушено", source: "аудио" },
+  ]);
+  test(
+    "Audio cannot create cash stop-factor",
+    audioOnlyCashClaim.cashZeroed !== true && audioOnlyCashClaim.cashIndex === 100,
+    "Cash stop-factor must come only from manual cash data"
   );
   test(
     "Missing evidence is never treated as compliance",

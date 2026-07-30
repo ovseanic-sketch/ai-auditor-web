@@ -80,3 +80,28 @@ export async function clearRecoverySession(): Promise<void> {
   if (client) await client.auth.signOut();
 }
 
+export async function inviteUserByAdmin(input: {
+  email: string;
+  fullName: string;
+  role: "admin" | "auditor" | "manager" | "shopper";
+  position?: string;
+  network?: string;
+}): Promise<{ userId: string }> {
+  if (!client) throw new Error("Supabase не настроен");
+  const { data: sessionData } = await client.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) throw new Error("Сессия истекла. Войдите повторно.");
+  const response = await fetch("/api/admin-users", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Не удалось пригласить пользователя.");
+  }
+  return { userId: data.userId };
+}

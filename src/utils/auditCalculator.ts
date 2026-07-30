@@ -226,15 +226,13 @@ export function calculateAuditScores(
 ): AuditCalculationResult {
   const isMystery = isMysteryShopperWithoutPurchase(checkType);
 
-  const hasCashViolationInOverrides = criteriaInput?.some((c: any) => {
-    const isCash = c.id === "cash_discipline" || c.criterionId === "cash_discipline" || ID_ALIAS_MAP[c.id] === "cash_discipline" || ID_ALIAS_MAP[c.criterionId] === "cash_discipline" || (c.name && c.name.includes("Касс"));
-    return isCash && c.status === "Нарушено";
-  });
-
-  const cashViolatedFinal = isCashViolated || !!hasCashViolationInOverrides;
+  // Cash discipline is a manual shopper/auditor fact. AI criteria must never
+  // infer a stop-factor from audio.
+  const cashViolatedFinal = isCashViolated;
 
   const processedCriteria: ChecklistCriterion[] = OFFICIAL_CRITERIA_SPECS.map((spec) => {
     const override = criteriaInput?.find((c: any) => {
+      if (spec.category === "cashier" && c.source === "аудио") return false;
       if (c.id === spec.id || c.criterionId === spec.id) return true;
       if (c.id && ID_ALIAS_MAP[c.id] === spec.id) return true;
       if (c.criterionId && ID_ALIAS_MAP[c.criterionId] === spec.id) return true;
@@ -308,7 +306,7 @@ export function calculateAuditScores(
     cashZeroReason = "Кассовая дисциплина: невыдача чека / нарушение правил расчета. Общий итог BPV обнулен (0%).";
   }
 
-  const cashIndex: number | "N/A" = isMystery ? "N/A" : (isCashViolated ? 0 : 100);
+  const cashIndex: number | "N/A" = isMystery ? "N/A" : (cashViolatedFinal ? 0 : 100);
 
   // Sales drivers index calculation
   const salesDriveObj = calculateSalesDriversIndex([], isMystery);

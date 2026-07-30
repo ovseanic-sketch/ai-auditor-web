@@ -267,14 +267,24 @@ export default function App() {
     if (!auditRepositoryReady) return;
     const currentSnapshot = JSON.stringify(auditRecords);
     if (currentSnapshot === persistedAuditsSnapshot.current) return;
-    AuditRepository.replaceAllAudits(auditRecords)
+    let previous: AuditRecord[] = [];
+    try {
+      previous = JSON.parse(persistedAuditsSnapshot.current || "[]");
+    } catch {
+      previous = [];
+    }
+    const previousById = new Map(previous.map((record) => [record.id, JSON.stringify(record)]));
+    const changed = auditRecords.filter(
+      (record) => previousById.get(record.id) !== JSON.stringify(record)
+    );
+    Promise.all(changed.map((record) => AuditRepository.saveAudit(record, currentUser?.role || "auditor")))
       .then(() => {
         persistedAuditsSnapshot.current = JSON.stringify(auditRecords);
       })
       .catch((error) => {
         setErrorMessage(error instanceof Error ? error.message : "Не удалось сохранить проверки");
       });
-  }, [auditRecords, auditRepositoryReady]);
+  }, [auditRecords, auditRepositoryReady, currentUser?.role]);
 
   // Notifications State & Handlers
   const [notifications, setNotifications] = useState<AppNotification[]>(() => loadNotifications());
@@ -382,8 +392,8 @@ export default function App() {
 
   // STEP 1 -> STEP 2: Operator starts AI Analysis
   const handleStartStep1To2 = async () => {
-    if (audioBase64 && (audioBase64.startsWith("blob:") || audioBase64.startsWith("http"))) {
-      setErrorMessage("Передана временная blob-ссылка или URL вместо данных аудиофайла. Выберите файл с диска заново.");
+    if (audioBase64?.startsWith("blob:")) {
+      setErrorMessage("Временная ссылка на аудио устарела. Выберите файл с диска заново.");
       return;
     }
 
@@ -401,24 +411,24 @@ export default function App() {
         auditData,
         transcript,
         audioBase64: audioBase64 || undefined,
-        audioMimeType: "audio/mp3",
+        audioMimeType: audioFileName?.toLowerCase().endsWith(".m4a") ? "audio/aac" : "audio/mpeg",
       });
 
       // Preserve any shopper/user pre-filled fields in auditData!
       const mergedAuditData: AuditFormData = {
         ...auditData,
-        brand: auditData.brand && auditData.brand.trim() ? auditData.brand : (data.extractedMeta?.brand || "Orange"),
-        branch: auditData.branch && auditData.branch.trim() ? auditData.branch : (data.extractedMeta?.branch || "Филиал №1"),
-        city: auditData.city && auditData.city.trim() ? auditData.city : (data.extractedMeta?.city || "Кишинев"),
-        employeeCode: auditData.employeeCode && auditData.employeeCode.trim() ? auditData.employeeCode : (data.extractedMeta?.employeeCode || "Консультант Ион М."),
-        inspector: auditData.inspector && auditData.inspector.trim() ? auditData.inspector : (data.extractedMeta?.inspector || currentUser?.name || "Инспектор ОКК"),
-        category: auditData.category && auditData.category.trim() ? auditData.category : (data.extractedMeta?.category || "Смартфоны"),
-        target: auditData.target && auditData.target.trim() ? auditData.target : (data.extractedMeta?.target || "Консультация BPV"),
-        result: auditData.result && auditData.result.trim() ? auditData.result : (data.extractedMeta?.result || "Завершено"),
+        brand: auditData.brand?.trim() || data.extractedMeta?.brand || "",
+        branch: auditData.branch?.trim() || data.extractedMeta?.branch || "",
+        city: auditData.city?.trim() || data.extractedMeta?.city || "",
+        employeeCode: auditData.employeeCode?.trim() || data.extractedMeta?.employeeCode || "",
+        inspector: auditData.inspector?.trim() || data.extractedMeta?.inspector || currentUser?.name || "",
+        category: auditData.category?.trim() || data.extractedMeta?.category || "",
+        target: auditData.target?.trim() || data.extractedMeta?.target || "",
+        result: auditData.result?.trim() || data.extractedMeta?.result || "",
         comment: auditData.comment && auditData.comment.trim() ? auditData.comment : (data.extractedMeta?.comment || ""),
         manager: auditData.manager && auditData.manager.trim() ? auditData.manager : (data.extractedMeta?.manager || ""),
-        region: auditData.region && auditData.region.trim() ? auditData.region : (data.extractedMeta?.region || "Регион Центр"),
-        group: auditData.group && auditData.group.trim() ? auditData.group : (data.extractedMeta?.group || "Регион Центр"),
+        region: auditData.region?.trim() || data.extractedMeta?.region || "",
+        group: auditData.group?.trim() || data.extractedMeta?.group || "",
       };
 
       setAuditData(mergedAuditData);
@@ -532,22 +542,22 @@ export default function App() {
     const newRecord: AuditRecord = {
       id: targetId,
       date: auditData.date || new Date().toLocaleDateString("ru-RU"),
-      startTime: auditData.startTime || "10:00",
-      endTime: auditData.endTime || "10:45",
-      brand: auditData.brand || "Orange",
-      branch: auditData.branch || "Филиал №1",
-      city: auditData.city || "Кишинев",
-      group: auditData.region || auditData.group || "Регион Центр",
-      region: auditData.region || auditData.group || "Регион Центр",
+      startTime: auditData.startTime || "",
+      endTime: auditData.endTime || "",
+      brand: auditData.brand || "",
+      branch: auditData.branch || "",
+      city: auditData.city || "",
+      group: auditData.region || auditData.group || "",
+      region: auditData.region || auditData.group || "",
       manager: auditData.manager || "",
       primaryApproverId: auditData.primaryApproverId,
-      category: auditData.category || "Смартфоны",
-      target: auditData.target || "Консультация BPV",
+      category: auditData.category || "",
+      target: auditData.target || "",
       result: auditData.result || `Оценка визита: ${extractedBpv}%`,
       comment: auditData.comment || "",
       checkType: auditData.checkType || "1. Контрольная закупка",
-      employeeCode: auditData.employeeCode || "Консультант",
-      inspector: auditData.inspector || currentUser?.name || "Инспектор ОКК",
+      employeeCode: auditData.employeeCode || "",
+      inspector: auditData.inspector || currentUser?.name || "",
       shopperName: sourceRecord.shopperName,
       shopperId: sourceRecord.shopperId,
       shopperData: sourceRecord.shopperData,
@@ -569,6 +579,7 @@ export default function App() {
       reportSummary: `Акт оценки ОКК. Итоговый балл BPV: ${extractedBpv}%.`,
       fullReportText: reportStr,
       audioFileName: sourceRecord.audioFileName || audioFileName || undefined,
+      audioMimeType: sourceRecord.audioMimeType || (audioFileName?.toLowerCase().endsWith(".m4a") ? "audio/aac" : "audio/mpeg"),
       audioData: sourceRecord.audioData || audioBase64 || undefined,
       audioUrl: sourceRecord.audioUrl || audioBase64 || undefined,
       approvalStatus: "PENDING_APPROVAL",
@@ -665,21 +676,21 @@ export default function App() {
 
     const shopperMeta: AuditFormData = {
       date: record.date || new Date().toISOString().split("T")[0],
-      startTime: record.startTime || "14:00",
-      endTime: record.endTime || "14:30",
+      startTime: record.startTime || "",
+      endTime: record.endTime || "",
       brand: record.brand || "",
       branch: record.branch || "",
       city: record.city || "",
       employeeCode: record.employeeCode || "",
       inspector: record.inspector || record.shopperName || currentUser?.name || "",
       checkType: record.checkType || "2. Mystery shopper (без покупки)",
-      category: record.category || "Смартфоны и портативная техника",
-      target: record.target || "Оценка сервисных стандартов и консультанта по визиту тайного покупателя",
-      result: record.result || `Оценка визита шоппера: ${record.bpvScore}%`,
-      comment: record.comment || record.reportSummary || "",
+      category: record.category || "",
+      target: record.target || "",
+      result: record.result || "",
+      comment: record.comment || "",
       manager: record.manager || "",
-      region: record.region || record.group || "Регион Центр",
-      group: record.group || record.region || "Регион Центр",
+      region: record.region || record.group || "",
+      group: record.group || record.region || "",
       month: record.month || "",
       standards: AUDIT_PRESETS[0].auditData.standards,
     };
@@ -711,12 +722,12 @@ export default function App() {
     const newRecord: AuditRecord = {
       id: newId,
       date: new Date().toLocaleDateString("ru-RU"),
-      brand: "Orange",
-      branch: "Филиал №1",
-      city: "Кишинев",
+      brand: "",
+      branch: "",
+      city: "",
       checkType: "2. Mystery shopper (без покупки)",
-      employeeCode: "Консультант",
-      inspector: currentUser?.name || "Тайный Покупатель",
+      employeeCode: "",
+      inspector: currentUser?.name || "",
       bpvScore: 0,
       speechScore: 0,
       salesDriveScore: 0,

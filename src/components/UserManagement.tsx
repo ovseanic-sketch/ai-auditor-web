@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { UserAccount, UserRole } from "../types";
-import { requestPasswordRecovery } from "../services/supabaseClient";
+import { inviteUserByAdmin, requestPasswordRecovery } from "../services/supabaseClient";
 import {
   Dictionaries,
   loadDictionaries,
@@ -58,12 +58,22 @@ const roleLabel: Record<UserRole, string> = {
 export const UserManagement: React.FC<UserManagementProps> = ({
   users,
   currentUser,
+  onAddUser,
 }) => {
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | UserRole>("all");
   const [notice, setNotice] = useState<Notice>(null);
   const [sendingFor, setSendingFor] = useState<string | null>(null);
   const [showDictionaryModal, setShowDictionaryModal] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [isInviting, setIsInviting] = useState(false);
+  const [newUser, setNewUser] = useState({
+    fullName: "",
+    email: "",
+    role: "shopper" as "admin" | "auditor" | "manager" | "shopper",
+    position: "",
+    network: "",
+  });
   const [dictionaries, setDictionaries] = useState<Dictionaries>(() => loadDictionaries());
   const [newBrand, setNewBrand] = useState("");
   const [newRegion, setNewRegion] = useState("");
@@ -115,6 +125,38 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       });
     } finally {
       setSendingFor(null);
+    }
+  };
+
+  const handleInviteUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setIsInviting(true);
+    setNotice(null);
+    try {
+      const result = await inviteUserByAdmin(newUser);
+      onAddUser({
+        login: newUser.email.trim().toLowerCase(),
+        email: newUser.email.trim().toLowerCase(),
+        name: newUser.fullName.trim(),
+        role: newUser.role,
+        position: newUser.position.trim(),
+        network: newUser.network.trim(),
+        status: "active",
+      });
+      setNotice({
+        type: "success",
+        text: `Пользователь ${newUser.fullName.trim()} создан. Приглашение отправлено на ${newUser.email.trim().toLowerCase()}.`,
+      });
+      setShowAddUserModal(false);
+      setNewUser({ fullName: "", email: "", role: "shopper", position: "", network: "" });
+      if (!result.userId) throw new Error("Профиль пользователя не подтверждён.");
+    } catch (error) {
+      setNotice({
+        type: "error",
+        text: error instanceof Error ? error.message : "Не удалось пригласить пользователя.",
+      });
+    } finally {
+      setIsInviting(false);
     }
   };
 
@@ -209,14 +251,24 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowDictionaryModal(true)}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-semibold text-white flex items-center gap-2"
-          >
-            <BookOpen className="w-4 h-4 text-blue-400" />
-            Справочники
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAddUserModal(true)}
+              className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-sm font-semibold text-white flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Добавить пользователя
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDictionaryModal(true)}
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-semibold text-white flex items-center gap-2"
+            >
+              <BookOpen className="w-4 h-4 text-blue-400" />
+              Справочники
+            </button>
+          </div>
         </div>
       </section>
 
@@ -326,10 +378,65 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         </div>
 
         <div className="px-4 py-3 border-t border-slate-800 text-[11px] text-slate-500">
-          Создание новых учетных записей будет включено после подключения защищённого серверного
-          приглашения Supabase. Это исключает передачу временных паролей открытым текстом.
+          Новые пользователи получают защищённое приглашение Supabase и самостоятельно устанавливают пароль.
         </div>
       </section>
+
+      {showAddUserModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <form onSubmit={handleInviteUser} className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <h3 className="font-bold text-white">Добавить пользователя</h3>
+                <p className="text-xs text-slate-400 mt-1">На e-mail будет отправлена ссылка для установки пароля.</p>
+              </div>
+              <button type="button" onClick={() => setShowAddUserModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <label className="block text-xs text-slate-300">
+              ФИО *
+              <input required value={newUser.fullName} onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })}
+                className="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white" />
+            </label>
+            <label className="block text-xs text-slate-300">
+              E-mail *
+              <input required type="email" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                className="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white" />
+            </label>
+            <label className="block text-xs text-slate-300">
+              Роль *
+              <select value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value as typeof newUser.role })}
+                className="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white">
+                <option value="shopper">Шоппер</option>
+                <option value="auditor">Аудитор</option>
+                <option value="manager">Руководитель бренда</option>
+                <option value="admin">Администратор</option>
+              </select>
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="block text-xs text-slate-300">
+                Сеть / бренд
+                <input value={newUser.network} onChange={(e) => setNewUser({ ...newUser, network: e.target.value })}
+                  className="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white" />
+              </label>
+              <label className="block text-xs text-slate-300">
+                Должность
+                <input value={newUser.position} onChange={(e) => setNewUser({ ...newUser, position: e.target.value })}
+                  className="mt-1.5 w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-white" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setShowAddUserModal(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200">Отмена</button>
+              <button type="submit" disabled={isInviting}
+                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold">
+                {isInviting ? "Отправка…" : "Создать и пригласить"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {showDictionaryModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
