@@ -54,7 +54,7 @@ const ROLE_CONFIGS: RoleCardConfig[] = [
     title: "Администратор",
     desc: "Управление пользователями, ролями и настройками доступов",
     defaultLogin: "admin",
-    defaultPass: "admin123",
+    defaultPass: "",
     icon: Shield,
     accentColor: "blue",
   },
@@ -64,7 +64,7 @@ const ROLE_CONFIGS: RoleCardConfig[] = [
     title: "Руководитель",
     desc: "Сводная аналитика BPV, реестр аудитов и утверждение отчетов",
     defaultLogin: "manager",
-    defaultPass: "manager123",
+    defaultPass: "",
     icon: Crown,
     accentColor: "indigo",
   },
@@ -74,7 +74,7 @@ const ROLE_CONFIGS: RoleCardConfig[] = [
     title: "Проверяющий",
     desc: "Загрузка диалогов, проведение ИИ-аудитов и создание отчетов",
     defaultLogin: "auditor",
-    defaultPass: "auditor123",
+    defaultPass: "",
     icon: UserCheck,
     accentColor: "cyan",
   },
@@ -84,24 +84,25 @@ const ROLE_CONFIGS: RoleCardConfig[] = [
     title: "Шоппер",
     desc: "Заполнение анкет контрольных закупок и отправка материалов",
     defaultLogin: "shopper",
-    defaultPass: "shopper123",
+    defaultPass: "",
     icon: ShoppingBag,
     accentColor: "emerald",
   },
 ];
 
 export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) => {
-  // Load saved credentials from localStorage if present
+  // Only login identifiers may be remembered. Passwords are never persisted.
   const [credentials, setCredentials] = useState<Record<string, { login: string; pass: string }>>(() => {
     try {
-      const saved = localStorage.getItem("okk_remembered_creds_v1");
+      localStorage.removeItem("okk_remembered_creds_v1");
+      const saved = localStorage.getItem("okk_remembered_logins_v1");
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
-          admin: parsed.admin || { login: "", pass: "" },
-          manager: parsed.manager || { login: "", pass: "" },
-          inspector: parsed.inspector || { login: "", pass: "" },
-          shopper: parsed.shopper || { login: "", pass: "" },
+          admin: { login: parsed.admin || "", pass: "" },
+          manager: { login: parsed.manager || "", pass: "" },
+          inspector: { login: parsed.inspector || "", pass: "" },
+          shopper: { login: parsed.shopper || "", pass: "" },
         };
       }
     } catch (e) {
@@ -344,6 +345,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
           setActiveError({ role, message: "Выбрана карточка другой роли" });
           return;
         }
+        try {
+          const savedRaw = localStorage.getItem("okk_remembered_logins_v1");
+          const currentSaved = savedRaw ? JSON.parse(savedRaw) : {};
+          if (rememberMe[role]) currentSaved[role] = creds.login;
+          else delete currentSaved[role];
+          localStorage.setItem("okk_remembered_logins_v1", JSON.stringify(currentSaved));
+        } catch (error) {
+          console.error("Failed to save login identifier", error);
+        }
         onLoginSuccess({
           id: authenticated.id,
           login: authenticated.email,
@@ -361,39 +371,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
       }
     }
 
-    if (!matchedUser) {
-      setActiveError({ role, message: "Пользователь не найден" });
-      return;
-    }
-
-    if (matchedUser.status === "blocked") {
-      setActiveError({ role, message: "Учетная запись заблокирована" });
-      return;
-    }
-
-    const validPassword = matchedUser.password || "admin123";
-    if (cleanPass !== validPassword) {
-      setActiveError({ role, message: "Неверный пароль" });
-      return;
-    }
-
-    // Save login & password if "rememberMe" is checked
-    try {
-      const savedRaw = localStorage.getItem("okk_remembered_creds_v1");
-      const currentSaved = savedRaw ? JSON.parse(savedRaw) : {};
-
-      if (rememberMe[role]) {
-        currentSaved[role] = { login: creds.login, pass: creds.pass };
-      } else {
-        delete currentSaved[role];
-      }
-
-      localStorage.setItem("okk_remembered_creds_v1", JSON.stringify(currentSaved));
-    } catch (err) {
-      console.error("Failed to save credentials to localStorage", err);
-    }
-
-    onLoginSuccess(matchedUser);
+    setActiveError({
+      role,
+      message: "Безопасный вход недоступен: подключение к Supabase не настроено.",
+    });
   };
 
   if (isRecoveryMode) {
@@ -813,4 +794,3 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
     </div>
   );
 };
-

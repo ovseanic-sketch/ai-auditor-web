@@ -4,7 +4,6 @@ export const DEFAULT_USERS: UserAccount[] = [
   {
     id: "usr-001",
     login: "admin",
-    password: "admin123",
     name: "Екатерина Администратор",
     firstName: "Екатерина",
     lastName: "Администратор",
@@ -18,7 +17,6 @@ export const DEFAULT_USERS: UserAccount[] = [
   {
     id: "usr-002",
     login: "manager",
-    password: "manager123",
     name: "Иван Руководитель",
     firstName: "Иван",
     lastName: "Руководитель",
@@ -32,7 +30,6 @@ export const DEFAULT_USERS: UserAccount[] = [
   {
     id: "usr-003",
     login: "auditor",
-    password: "auditor123",
     name: "Алексей Инспектор",
     firstName: "Алексей",
     lastName: "Инспектор",
@@ -46,7 +43,6 @@ export const DEFAULT_USERS: UserAccount[] = [
   {
     id: "usr-004",
     login: "shopper",
-    password: "shopper123",
     name: "Мария Шоппер",
     firstName: "Мария",
     lastName: "Шоппер",

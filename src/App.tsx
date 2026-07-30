@@ -45,9 +45,15 @@ export default function App() {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   };
 
-  // Users List State (Persisted in localStorage)
+  const withoutPassword = (user: UserAccount): UserAccount => {
+    const { password: _password, ...safeUser } = user;
+    return safeUser;
+  };
+
+  // User profiles may be cached for UI continuity, but credentials must never be cached.
   const [users, setUsers] = useState<UserAccount[]>(() => {
     try {
+      localStorage.removeItem("okk_remembered_creds_v1");
       const saved = localStorage.getItem("okk_users_v1");
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -58,7 +64,7 @@ export default function App() {
             const key = u.login ? u.login.trim().toLowerCase() : u.id;
             if (!seen.has(key)) {
               seen.add(key);
-              unique.push(u);
+              unique.push(withoutPassword(u));
             }
           }
           return unique;
@@ -67,12 +73,12 @@ export default function App() {
     } catch (e) {
       console.error("Failed to load users list from storage", e);
     }
-    return DEFAULT_USERS;
+    return DEFAULT_USERS.map(withoutPassword);
   });
 
   useEffect(() => {
     try {
-      localStorage.setItem("okk_users_v1", JSON.stringify(users));
+      localStorage.setItem("okk_users_v1", JSON.stringify(users.map(withoutPassword)));
     } catch (e) {
       console.error("Failed to save users list", e);
     }
@@ -84,7 +90,7 @@ export default function App() {
   useEffect(() => {
     try {
       if (currentUser) {
-        localStorage.setItem("okk_current_user_v1", JSON.stringify(currentUser));
+        localStorage.setItem("okk_current_user_v1", JSON.stringify(withoutPassword(currentUser)));
       } else {
         localStorage.removeItem("okk_current_user_v1");
       }
@@ -189,15 +195,9 @@ export default function App() {
     setUsers((prev) => prev.filter((u) => u.id !== id));
   };
 
-  const handleResetPassword = (id: string, newPass: string) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, password: newPass } : u))
-    );
-  };
-
   const handleUpdateUserInfo = (
     id: string,
-    updatedData: { name?: string; login?: string; password?: string; role?: UserRole }
+    updatedData: { name?: string; login?: string; role?: UserRole }
   ) => {
     setUsers((prev) =>
       prev.map((u) => {
@@ -816,7 +816,6 @@ export default function App() {
               onUpdateUserStatus={handleUpdateUserStatus}
               onUpdateUserRole={handleUpdateUserRole}
               onDeleteUser={handleDeleteUser}
-              onResetPassword={handleResetPassword}
               onUpdateUserInfo={handleUpdateUserInfo}
             />
           ) : auditSubView === "dashboard" && currentUser.role !== "shopper" ? (
