@@ -104,6 +104,22 @@ export default function App() {
     return "form";
   });
 
+  const refreshUsersFromDatabase = async () => {
+    const profiles = await loadActiveProfiles();
+    setUsers(
+      profiles.map((profile) => ({
+        id: profile.id,
+        login: profile.login,
+        name: profile.full_name,
+        position: profile.position,
+        network: profile.network_scope,
+        role: profile.role as UserRole,
+        status: profile.status,
+        createdAt: profile.created_at || new Date().toISOString(),
+      }))
+    );
+  };
+
   // Handle Login & Logout
   const handleLoginSuccess = (user: UserAccount) => {
     setCurrentUser(user);
@@ -112,22 +128,7 @@ export default function App() {
       loadDictionariesRemote().catch((error) =>
         setErrorMessage(error instanceof Error ? error.message : "Не удалось загрузить справочники")
       );
-      loadActiveProfiles()
-        .then((profiles) =>
-          setUsers(
-            profiles.map((profile) => ({
-              id: profile.id,
-              login: profile.login,
-              email: profile.login,
-              name: profile.full_name,
-              position: profile.position,
-              network: profile.network_scope,
-              role: profile.role as UserRole,
-              status: profile.status,
-              createdAt: profile.created_at || new Date().toISOString(),
-            }))
-          )
-        )
+      refreshUsersFromDatabase()
         .catch((error) => setErrorMessage(error instanceof Error ? error.message : "Не удалось загрузить пользователей"));
     }
     if (user.role === "manager") setAuditSubView("registry");
@@ -407,10 +408,36 @@ export default function App() {
     setErrorMessage(null);
 
     try {
+      let analysisAudio = audioBase64 || undefined;
+      if (analysisAudio?.startsWith("data:")) {
+        if (!activeAuditRecordId) {
+          throw new Error("Сначала загрузите сохранённую анкету шоппера из списка поступивших проверок.");
+        }
+        const preparedAudio = await AuditRepository.ensureAudioForAnalysis(
+          activeAuditRecordId,
+          analysisAudio,
+          audioFileName || "visit-audio.mp3",
+          audioFileName?.toLowerCase().endsWith(".m4a") ? "audio/aac" : "audio/mpeg"
+        );
+        analysisAudio = preparedAudio.audioUrl;
+        setAudioBase64(preparedAudio.audioUrl);
+        setAuditRecords((records) =>
+          records.map((record) =>
+            record.id === activeAuditRecordId
+              ? {
+                  ...record,
+                  audioStoragePath: preparedAudio.storagePath || record.audioStoragePath,
+                  audioUrl: preparedAudio.audioUrl,
+                  audioData: undefined,
+                }
+              : record
+          )
+        );
+      }
       const data = await analyzeMysteryShopperClient({
         auditData,
         transcript,
-        audioBase64: audioBase64 || undefined,
+        audioBase64: analysisAudio,
         audioMimeType: audioFileName?.toLowerCase().endsWith(".m4a") ? "audio/aac" : "audio/mpeg",
       });
 
@@ -828,6 +855,7 @@ export default function App() {
               onUpdateUserRole={handleUpdateUserRole}
               onDeleteUser={handleDeleteUser}
               onUpdateUserInfo={handleUpdateUserInfo}
+              onRefreshUsers={refreshUsersFromDatabase}
             />
           ) : auditSubView === "dashboard" && currentUser.role !== "shopper" ? (
             <Dashboard recentAudits={auditRecords} currentUser={currentUser} />

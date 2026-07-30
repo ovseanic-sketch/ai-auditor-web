@@ -124,6 +124,49 @@ export class AuditRepository {
     if (error) throw new Error(`Не удалось сохранить проверку ${updatedAudit.id}: ${error.message}`);
   }
 
+  public static async ensureAudioForAnalysis(
+    auditId: string,
+    audioSource: string,
+    fileName = "visit-audio.mp3",
+    mimeType = "audio/mpeg"
+  ): Promise<{ audioUrl: string; storagePath?: string }> {
+    if (/^https:\/\//i.test(audioSource)) {
+      return { audioUrl: audioSource };
+    }
+    if (!audioSource.startsWith("data:")) {
+      throw new Error("Формат аудиозаписи не поддерживается.");
+    }
+    if (!checkSupabaseConnection()) {
+      throw new Error("Для анализа длинной аудиозаписи требуется подключение к защищённому хранилищу Supabase.");
+    }
+
+    const supabase = getSupabase()!;
+    const [header, encoded] = audioSource.split(",", 2);
+    if (!encoded) throw new Error("Аудиозапись повреждена или загружена не полностью.");
+    const detectedMime = header.match(/data:([^;]+)/)?.[1] || mimeType;
+    const bytes = Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const storagePath = `${auditId}/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("audit-audio")
+      .upload(storagePath, new Blob([bytes], { type: detectedMime }), {
+        contentType: detectedMime,
+        upsert: false,
+      });
+    if (uploadError) {
+      throw new Error(`Не удалось сохранить аудиозапись перед анализом: ${uploadError.message}`);
+    }
+
+    const { data: signed, error: signedError } = await supabase.storage
+      .from("audit-audio")
+      .createSignedUrl(storagePath, 60 * 60);
+    if (signedError || !signed?.signedUrl) {
+      throw new Error(`Не удалось подготовить защищённую ссылку на аудио: ${signedError?.message || "неизвестная ошибка"}`);
+    }
+    return { audioUrl: signed.signedUrl, storagePath };
+  }
+
   public static getAuditsSync(initialFallback: AuditRecord[] = []): AuditRecord[] {
     if (this.cachedAudits && this.cachedAudits.length > 0) {
       return this.cachedAudits;

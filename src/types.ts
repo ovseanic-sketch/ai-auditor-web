@@ -77,7 +77,7 @@ export interface UserAccount {
   network?: string;
   position?: string;
   role: UserRole;
-  status: "active" | "blocked";
+  status: "active" | "blocked" | "archived";
   createdAt: string;
 }
 
