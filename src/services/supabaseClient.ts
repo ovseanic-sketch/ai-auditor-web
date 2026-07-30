@@ -61,3 +61,22 @@ export async function loadActiveProfiles(): Promise<any[]> {
   if (error) throw new Error(`Не удалось загрузить справочник пользователей: ${error.message}`);
   return data || [];
 }
+
+
+export async function requestPasswordRecovery(email: string): Promise<void> {
+  if (!client) throw new Error("Supabase не настроен");
+  const redirectTo = `${window.location.origin}/`;
+  const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) throw new Error(error.message);
+}
+
+export async function updateRecoveredPassword(password: string): Promise<void> {
+  if (!client) throw new Error("Supabase не настроен");
+  const { error } = await client.auth.updateUser({ password });
+  if (error) throw new Error(error.message);
+}
+
+export async function clearRecoverySession(): Promise<void> {
+  if (client) await client.auth.signOut();
+}
+

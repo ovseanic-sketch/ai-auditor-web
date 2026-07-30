@@ -1,8 +1,15 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { UserAccount, UserRole } from "../types";
 import { FeedbackNotepad } from "./FeedbackNotepad";
 import { createNotification } from "../utils/notificationStore";
-import { checkSupabaseConnection, signInWithSupabase } from "../services/supabaseClient";
+import {
+  checkSupabaseConnection,
+  clearRecoverySession,
+  getSupabase,
+  requestPasswordRecovery,
+  signInWithSupabase,
+  updateRecoveredPassword,
+} from "../services/supabaseClient";
 import {
   ShieldCheck,
   Key,
@@ -132,6 +139,71 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
   const [forgotStatus, setForgotStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [isSubmittingReset, setIsSubmittingReset] = useState(false);
 
+  const initialHash = typeof window !== "undefined" ? window.location.hash : "";
+  const initialRecoveryError = initialHash.includes("error_code=otp_expired")
+    ? "Ссылка восстановления просрочена или уже использована. Запросите новое письмо и откройте только самую свежую ссылку."
+    : initialHash.includes("error=")
+    ? "Ссылка восстановления недействительна. Запросите новое письмо."
+    : "";
+  const [isRecoveryMode, setIsRecoveryMode] = useState(
+    initialHash.includes("type=recovery") || Boolean(initialRecoveryError)
+  );
+  const [recoveryError, setRecoveryError] = useState(initialRecoveryError);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
+
+  useEffect(() => {
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryError("");
+        setIsRecoveryMode(true);
+      }
+    });
+
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const leaveRecoveryMode = async () => {
+    await clearRecoverySession().catch(() => undefined);
+    window.history.replaceState({}, document.title, window.location.pathname);
+    setIsRecoveryMode(false);
+    setRecoveryError("");
+    setPasswordUpdated(false);
+    setNewPassword("");
+    setConfirmNewPassword("");
+  };
+
+  const handleRecoverySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryError("");
+
+    if (newPassword.length < 8) {
+      setRecoveryError("Пароль должен содержать не менее 8 символов.");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setRecoveryError("Пароли не совпадают.");
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      await updateRecoveredPassword(newPassword);
+      setPasswordUpdated(true);
+      setNewPassword("");
+      setConfirmNewPassword("");
+    } catch (error) {
+      setRecoveryError(error instanceof Error ? error.message : "Не удалось сохранить новый пароль.");
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
+
   const openForgotPasswordModal = (defaultRole?: string, defaultLogin?: string) => {
     setForgotLoginOrEmail(defaultLogin || "");
     setForgotUserRole(defaultRole || "inspector");
@@ -168,7 +240,35 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
     const userLogin = matchedUser ? matchedUser.login : forgotLoginOrEmail;
     const userEmail = matchedUser ? matchedUser.email || `${userLogin}@company.com` : forgotLoginOrEmail;
 
-    // Create system notification for Administrator in active notifications (Bell icon)
+    if (checkSupabaseConnection()) {
+      const recoveryEmail = (matchedUser?.email || matchedUser?.login || forgotLoginOrEmail).trim().toLowerCase();
+      if (!recoveryEmail.includes("@")) {
+        setIsSubmittingReset(false);
+        setForgotStatus({ type: "error", message: "Для восстановления укажите e-mail учетной записи." });
+        return;
+      }
+
+      try {
+        await requestPasswordRecovery(recoveryEmail);
+        setForgotStatus({
+          type: "success",
+          message: "Письмо для восстановления отправлено. Откройте самое новое письмо и перейдите по ссылке.",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось отправить письмо.";
+        setForgotStatus({
+          type: "error",
+          message: message.toLowerCase().includes("rate limit")
+            ? "Превышен лимит писем Supabase. Не повторяйте запросы и попробуйте снова через час."
+            : message,
+        });
+      } finally {
+        setIsSubmittingReset(false);
+      }
+      return;
+    }
+
+    // Demo mode only: create a system notification for the administrator.
     createNotification({
       recipientName: "Екатерина Администратор",
       recipientRole: "admin",
@@ -295,6 +395,96 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
 
     onLoginSuccess(matchedUser);
   };
+
+  if (isRecoveryMode) {
+    return (
+      <div className="min-h-screen bg-[#0b1329] text-white flex items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center">
+              <Key className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Новый пароль</h1>
+              <p className="text-xs text-slate-400 mt-1">Установите новый пароль для AI Mystery Auditor</p>
+            </div>
+          </div>
+
+          {passwordUpdated ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm flex gap-2">
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                <span>Пароль успешно изменён. Теперь можно войти с новым паролем.</span>
+              </div>
+              <button
+                type="button"
+                onClick={leaveRecoveryMode}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl"
+              >
+                Перейти ко входу
+              </button>
+            </div>
+          ) : recoveryError && initialRecoveryError ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex gap-2">
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <span>{recoveryError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={leaveRecoveryMode}
+                className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2.5 rounded-xl"
+              >
+                Вернуться ко входу
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleRecoverySubmit} className="space-y-4">
+              {recoveryError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{recoveryError}</span>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Новый пароль</label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-xl px-3 py-2.5 text-sm outline-none"
+                  placeholder="Не менее 8 символов"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Повторите пароль</label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={8}
+                  required
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 rounded-xl px-3 py-2.5 text-sm outline-none"
+                  placeholder="Повторите новый пароль"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isSavingPassword}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl"
+              >
+                {isSavingPassword ? "Сохраняем..." : "Сохранить новый пароль"}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0b1329] text-white flex flex-col justify-center items-center p-4 sm:p-6 relative overflow-hidden font-sans">
@@ -623,3 +813,4 @@ export const LoginPage: React.FC<LoginPageProps> = ({ users, onLoginSuccess }) =
     </div>
   );
 };
+
